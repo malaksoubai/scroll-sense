@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ScrollSense — Quiz Me</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      background: #0f0f1a;
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      display: flex;
+      justify-content: center;
+      padding: 40px 20px 80px;
+    }
+    .container { width: 100%; max-width: 640px; }
+
+    /* ── Header */
+    .header { margin-bottom: 32px; }
+    .logo    { font-size: 22px; font-weight: 800; color: #818cf8; margin-bottom: 4px; }
+    .tagline { font-size: 13px; color: #475569; }
+
+    /* ── Cards */
+    .card {
+      background: #1e293b;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 16px;
+      border: 1px solid #334155;
+    }
+    .card-title { font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 4px; }
+    .card-sub   { font-size: 12px; color: #64748b; line-height: 1.5; margin-bottom: 18px; }
+
+    /* ── Tab switcher */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: #0f172a;
+      border-radius: 10px;
+      padding: 4px;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 8px 0;
+      border: none;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      color: #64748b;
+      background: transparent;
+      transition: background 0.15s, color 0.15s;
+    }
+    .tab-btn.active { background: #6366f1; color: #fff; }
+
+    /* ── Tab panels */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Drop zone */
+    .drop-zone {
+      border: 2px dashed #334155;
+      border-radius: 12px;
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      position: relative;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .drop-zone:hover,
+    .drop-zone.drag-over { border-color: #6366f1; background: rgba(99,102,241,0.07); }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0;
+      cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon  { font-size: 32px; margin-bottom: 8px; }
+    .drop-main  { font-size: 14px; font-weight: 600; color: #cbd5e1; margin-bottom: 4px; }
+    .drop-sub   { font-size: 12px; color: #475569; }
+    .drop-types {
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+    .type-chip {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: #0f172a;
+      color: #818cf8;
+      border: 1px solid #334155;
+    }
+
+    /* ── Paste panel */
+    .paste-name {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #f1f5f9;
+      font-size: 13px;
+      padding: 10px 12px;
+      font-family: inherit;
+      margin-bottom: 10px;
+    }
+    .paste-name:focus { outline: 2px solid #6366f1; border-color: transparent; }
+    .paste-name::placeholder { color: #475569; }
+    textarea {
+      width: 100%;
+      height: 160px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #f1f5f9;
+      font-size: 13px;
+      font-family: inherit;
+      padding: 10px 12px;
+      resize: vertical;
+      line-height: 1.6;
+    }
+    textarea:focus { outline: 2px solid #6366f1; border-color: transparent; }
+    textarea::placeholder { color: #475569; }
+    .char-count { font-size: 11px; color: #475569; text-align: right; margin-top: 4px; }
+
+    /* ── Buttons */
+    .btn {
+      width: 100%;
+      padding: 11px 0;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      margin-top: 12px;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:hover:not(:disabled) { opacity: 0.88; }
+    .btn:active:not(:disabled) { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .btn-primary { background: #6366f1; color: #fff; }
+
+    /* ── Status */
+    .status {
+      margin-top: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+      line-height: 1.5;
+    }
+    .status.success { background: #f0fdf4; color: #15803d; display: block; }
+    .status.error   { background: #fef2f2; color: #dc2626; display: block; }
+    .status.info    { background: #eff6ff; color: #1d4ed8; display: block; }
+
+    /* ── Progress bar */
+    .progress-wrap { margin-top: 12px; display: none; }
+    .progress-wrap.visible { display: block; }
+    .progress-label { font-size: 12px; color: #818cf8; margin-bottom: 6px; }
+    .progress-bar   { height: 4px; background: #1e293b; border-radius: 999px; overflow: hidden; }
+    .progress-fill  {
+      height: 100%; background: #6366f1; border-radius: 999px;
+      width: 0%; transition: width 0.3s ease;
+    }
+
+    /* ── Library */
+    .lib-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .lib-count { font-size: 12px; color: #64748b; }
+    .lib-clear {
+      background: none; border: none;
+      color: #f87171; font-size: 12px;
+      cursor: pointer; font-family: inherit;
+    }
+    .lib-clear:hover { text-decoration: underline; }
+
+    .file-list { display: flex; flex-direction: column; gap: 6px; }
+    .file-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 10px 14px;
+    }
+    .file-icon { font-size: 20px; flex-shrink: 0; }
+    .file-info { flex: 1; min-width: 0; }
+    .file-name { font-size: 13px; font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
+    .file-del  {
+      background: none; border: none;
+      color: #475569; font-size: 16px;
+      cursor: pointer; padding: 2px 4px;
+      flex-shrink: 0; line-height: 1;
+      border-radius: 4px; transition: color 0.15s, background 0.15s;
+    }
+    .file-del:hover { color: #f87171; background: #1e293b; }
+
+    .empty-lib { font-size: 13px; color: #475569; text-align: center; padding: 20px 0; }
+
+    /* ── PDF/DOCX converter tip */
+    .converter-tip {
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-top: 16px;
+    }
+    .converter-tip-title {
+      font-size: 12px; font-weight: 700;
+      color: #818cf8; margin-bottom: 8px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .converter-tip p { font-size: 12px; color: #64748b; line-height: 1.6; margin-bottom: 8px; }
+    .converter-tip code {
+      display: block;
+      background: #1e293b;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 12px;
+      color: #a5b4fc;
+      margin: 6px 0;
+      word-break: break-all;
+    }
+
+    /* ── Earn badge */
+    .earn-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f0fdf4; border: 1px solid #86efac;
+      color: #16a34a; font-size: 13px; font-weight: 600;
+      padding: 5px 14px; border-radius: 999px; margin-top: 10px;
+    }
+    .info-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      font-size: 12px; color: #94a3b8; line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .info-row span:first-child { flex-shrink: 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="logo">ScrollSense</div>
+    <div class="tagline">Quiz Me — Study while you scroll. Earn time for correct answers.</div>
+  </div>
+
+  <!-- ── Upload card -->
+  <div class="card">
+    <div class="card-title">Add Study Material</div>
+    <div class="card-sub">Pick a method below. Ollama will quiz you on whatever you add.</div>
+
+    <!-- Tab switcher -->
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="file">📄 Upload File</button>
+      <button class="tab-btn"        data-tab="paste">✏️ Paste Text</button>
+    </div>
+
+    <!-- File upload panel -->
+    <div class="tab-panel active" id="tab-file">
+      <div class="drop-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".txt,.md,.html,.csv" multiple />
+        <div class="drop-icon">📂</div>
+        <div class="drop-main">Click to choose files, or drag &amp; drop</div>
+        <div class="drop-sub">Reads the file immediately — no conversion needed</div>
+        <div class="drop-types">
+          <span class="type-chip">.txt</span>
+          <span class="type-chip">.md</span>
+          <span class="type-chip">.html</span>
+          <span class="type-chip">.csv</span>
+        </div>
+      </div>
+
+      <!-- PDF/DOCX tip -->
+      <div class="converter-tip">
+        <div class="converter-tip-title">📕 Have a PDF or Word doc?</div>
+        <p>Chrome extensions can't read PDF/DOCX binary files directly. Run this one-line command in your Terminal to convert it to a .txt file, then upload that:</p>
+        <p><strong>PDF → txt:</strong></p>
+        <code>python3 -m pdfminer.high_level yourfile.pdf &gt; yourfile.txt</code>
+        <p><strong>DOCX → txt:</strong></p>
+        <code>python3 -c "import docx; print('\n'.join([p.text for p in docx.Document('yourfile.docx').paragraphs]))" &gt; yourfile.txt</code>
+        <p style="margin-top:6px">Need the packages first? Run: <code>pip install pdfminer.six python-docx</code></p>
+      </div>
+    </div>
+
+    <!-- Paste panel -->
+    <div class="tab-panel" id="tab-paste">
+      <input
+        type="text"
+        class="paste-name"
+        id="paste-name"
+        placeholder="Give it a name (e.g. Biology Ch.3, Lecture Notes)"
+        maxlength="80"
+      />
+      <textarea
+        id="paste-area"
+        placeholder="Paste your notes, article, lecture transcript, or any text here…"
+      ></textarea>
+      <div class="char-count"><span id="char-count">0</span> characters</div>
+      <button class="btn btn-primary" id="add-paste-btn" disabled>Save to Library</button>
+    </div>
+
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="progress-label" id="progress-label">Reading files…</div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <!-- ── Library card -->
+  <div class="card">
+    <div class="lib-header">
+      <div>
+        <div class="card-title">Your Study Library</div>
+        <div class="lib-count" id="lib-count">0 files saved</div>
+      </div>
+      <button class="lib-clear" id="clear-all-btn">Remove all</button>
+    </div>
+    <div class="file-list" id="file-list">
+      <div class="empty-lib" id="empty-lib">Nothing here yet — add files above.</div>
+    </div>
+  </div>
+
+  <!-- ── How it works -->
+  <div class="card">
+    <div class="card-title">How it works</div>
+    <div style="margin-top:12px">
+      <div class="info-row"><span>📚</span><span>Every other scroll intervention, Ollama picks a random file from your library and generates a quiz question from it.</span></div>
+      <div class="info-row"><span>🔀</span><span>Alternating interventions show your open tabs as a redirect card — nudging you back to real work.</span></div>
+      <div class="info-row"><span>📂</span><span>If your library is empty, the quiz slot shows an upload prompt instead of guessing from your tabs.</span></div>
+      <div class="info-row"><span>🔒</span><span>Everything stays local. Ollama runs on your machine — no data leaves your computer.</span></div>
+    </div>
+    <div class="earn-badge">✨ Correct answer = +2 min added to your budget</div>
+  </div>
+
+</div>
+<script src="options.js"></script>
+</body>
+</html>

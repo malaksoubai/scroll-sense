@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ScrollSense</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f0f1a; color: #f1f5f9; padding: 18px;
+    }
+
+    .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+    .logo   { font-size: 15px; font-weight: 700; color: #818cf8; }
+    .tagline { font-size: 11px; color: #475569; }
+
+    /* Quiz Me button */
+    #quiz-me-btn {
+      display: flex; align-items: center; gap: 6px;
+      background: linear-gradient(135deg,#6366f1,#8b5cf6);
+      border: none; border-radius: 8px; color: #fff;
+      font-size: 12px; font-weight: 600; padding: 6px 10px;
+      cursor: pointer; font-family: inherit; white-space: nowrap;
+      transition: opacity 0.15s;
+    }
+    #quiz-me-btn:hover { opacity: 0.85; }
+    .quiz-me-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #4ade80; flex-shrink: 0;
+    }
+    .quiz-me-dot.inactive { background: #64748b; }
+
+    /* Ring */
+    .ring-wrap { display: flex; justify-content: center; margin-bottom: 14px; }
+    .ring-container { position: relative; width: 100px; height: 100px; }
+    .ring-svg  { transform: rotate(-90deg); }
+    .ring-bg   { fill: none; stroke: #1e293b; stroke-width: 8; }
+    .ring-fg   { fill: none; stroke-width: 8; stroke-linecap: round; transition: stroke-dashoffset 0.6s, stroke 0.4s; }
+    .ring-center {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .ring-time  { font-size: 20px; font-weight: 700; }
+    .ring-label { font-size: 10px; color: #64748b; margin-top: 1px; }
+
+    /* Earned time badge */
+    .earned-badge {
+      display: none; text-align: center; margin-bottom: 12px;
+      font-size: 12px; color: #16a34a; font-weight: 600;
+    }
+    .earned-badge.visible { display: block; }
+    .earned-badge span { background: #f0fdf4; padding: 2px 10px; border-radius: 999px; }
+
+    /* Streak */
+    .streak-row {
+      display: none; align-items: center; justify-content: center;
+      gap: 6px; margin-bottom: 14px;
+      font-size: 13px; color: #f59e0b; font-weight: 700;
+    }
+    .streak-row.visible { display: flex; }
+
+    /* Stats */
+    .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-bottom: 14px; }
+    .stat-card  { background: #1e293b; border-radius: 9px; padding: 8px 4px; text-align: center; }
+    .stat-val   { font-size: 16px; font-weight: 700; color: #818cf8; }
+    .stat-lbl   { font-size: 9px; color: #64748b; margin-top: 2px; line-height: 1.2; }
+
+    /* Score bar */
+    .score-row   { margin-bottom: 14px; }
+    .score-label { font-size: 11px; color: #475569; margin-bottom: 5px; }
+    .score-bar   { height: 6px; background: #1e293b; border-radius: 999px; overflow: hidden; }
+    .score-fill  { height: 100%; background: #6366f1; border-radius: 999px; transition: width 0.5s; }
+
+    hr { border: none; border-top: 1px solid #1e293b; margin: 4px 0 14px; }
+
+    .section-title {
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.8px; color: #475569; margin-bottom: 10px;
+    }
+    .setting-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+    .setting-label { font-size: 13px; color: #cbd5e1; }
+    .setting-sub   { font-size: 10px; color: #475569; }
+
+    input[type="number"] {
+      width: 58px; background: #1e293b; border: 1px solid #334155;
+      color: #f1f5f9; font-size: 13px; padding: 5px 8px;
+      border-radius: 6px; text-align: right; font-family: inherit;
+    }
+    input[type="number"]:focus { outline: 2px solid #6366f1; border-color: transparent; }
+
+    .toggle { position: relative; width: 36px; height: 20px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider {
+      position: absolute; inset: 0; background: #334155;
+      border-radius: 999px; cursor: pointer; transition: background 0.2s;
+    }
+    .toggle-slider::before {
+      content: ""; position: absolute;
+      width: 14px; height: 14px; left: 3px; top: 3px;
+      background: #fff; border-radius: 50%; transition: transform 0.2s;
+    }
+    .toggle input:checked + .toggle-slider { background: #6366f1; }
+    .toggle input:checked + .toggle-slider::before { transform: translateX(16px); }
+
+    #save-btn {
+      width: 100%; padding: 9px 0; background: #6366f1;
+      border: none; border-radius: 8px; color: #fff;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: opacity 0.15s;
+    }
+    #save-btn:hover { opacity: 0.85; }
+    #save-btn.saved { background: #16a34a; }
+
+    .model-row { margin-top: 12px; font-size: 11px; color: #475569; text-align: center; }
+    .model-row span { color: #818cf8; }
+    .ollama-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 4px; background: #64748b; }
+    .ollama-dot.online  { background: #4ade80; }
+    .ollama-dot.offline { background: #f87171; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <div class="logo">ScrollSense</div>
+      <div class="tagline">Redirect. Don't block.</div>
+    </div>
+    <button id="quiz-me-btn">
+      <span class="quiz-me-dot inactive" id="quiz-dot"></span>
+      Quiz Me
+    </button>
+  </div>
+
+  <!-- Ring -->
+  <div class="ring-wrap">
+    <div class="ring-container">
+      <svg class="ring-svg" width="100" height="100" viewBox="0 0 100 100">
+        <circle class="ring-bg" cx="50" cy="50" r="42" />
+        <circle class="ring-fg" id="ring-fg" cx="50" cy="50" r="42"
+          stroke-dasharray="264" stroke-dashoffset="264" stroke="#6366f1" />
+      </svg>
+      <div class="ring-center">
+        <div class="ring-time"  id="ring-time">--:--</div>
+        <div class="ring-label" id="ring-label">left today</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Earned time -->
+  <div class="earned-badge" id="earned-badge">
+    <span id="earned-text">+0 min earned today</span>
+  </div>
+
+  <!-- Streak -->
+  <div class="streak-row" id="streak-row">
+    🔥 <span id="streak-count">0</span> day streak
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-val" id="stat-used">0</div><div class="stat-lbl">min used</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-overrides">0</div><div class="stat-lbl">overrides</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-correct">0</div><div class="stat-lbl">correct</div></div>
+    <div class="stat-card"><div class="stat-val" id="stat-wrong">0</div><div class="stat-lbl">wrong</div></div>
+  </div>
+
+  <div class="score-row">
+    <div class="score-label">Quiz accuracy today</div>
+    <div class="score-bar"><div class="score-fill" id="score-fill" style="width:0%"></div></div>
+  </div>
+
+  <hr />
+
+  <div class="section-title">Settings</div>
+
+  <div class="setting-row">
+    <div><div class="setting-label">Daily budget</div><div class="setting-sub">minutes on Instagram</div></div>
+    <input type="number" id="set-budget" min="1" max="240" value="20" />
+  </div>
+
+  <div class="setting-row">
+    <div><div class="setting-label">Intervene after</div><div class="setting-sub">new posts scrolled</div></div>
+    <input type="number" id="set-posts" min="3" max="100" value="10" />
+  </div>
+
+  <div class="setting-row">
+    <div><div class="setting-label">Hard freeze at limit</div><div class="setting-sub">blur + block at 100%</div></div>
+    <label class="toggle">
+      <input type="checkbox" id="set-freeze" checked />
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+
+  <button id="save-btn">Save Settings</button>
+
+  <div class="model-row">
+    <span class="ollama-dot" id="ollama-dot"></span>
+    Ollama · <span id="model-name">llama3.2</span>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

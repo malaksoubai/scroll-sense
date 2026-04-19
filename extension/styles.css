@@ -1,0 +1,269 @@
+/* ============================================================
+   ScrollSense — styles.css  v2.0
+   ============================================================ */
+
+/* ─── Pill pulse animation ───────────────────────────────── */
+@keyframes ss-shake {
+  0%,100% { transform: translateX(0);   }
+  20%     { transform: translateX(-5px); }
+  40%     { transform: translateX(5px);  }
+  60%     { transform: translateX(-4px); }
+  80%     { transform: translateX(4px);  }
+}
+@keyframes ss-pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(250,204,21,0.7); }
+  70%  { box-shadow: 0 0 0 10px rgba(250,204,21,0); }
+  100% { box-shadow: 0 0 0 0 rgba(250,204,21,0);   }
+}
+
+/* ─── Timer Pill ─────────────────────────────────────────── */
+#ss-pill {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  box-shadow: 0 2px 14px rgba(0,0,0,0.22);
+  user-select: none;
+  cursor: default;
+  transition: background 0.5s, color 0.5s;
+}
+#ss-pill.ss-green  { background: #0f172a; color: #4ade80; }
+#ss-pill.ss-yellow { background: #0f172a; color: #facc15; }
+#ss-pill.ss-red    { background: #0f172a; color: #f87171; }
+
+/* 90% warning pulse */
+#ss-pill.ss-pulse {
+  animation: ss-shake 0.5s ease-in-out, ss-pulse-ring 1s ease 0.5s 3;
+}
+
+.ss-pill-icon   { font-size: 13px; }
+.ss-pill-time   { font-size: 13px; font-variant-numeric: tabular-nums; }
+.ss-pill-label  { font-size: 11px; opacity: 0.6; }
+.ss-pill-streak { font-size: 12px; margin-left: 2px; }
+
+/* ─── Warning toast (90%) ────────────────────────────────── */
+#ss-warning-toast,
+#ss-earn-toast {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  z-index: 2147483646;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: none;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+}
+#ss-warning-toast {
+  background: #1e293b;
+  color: #facc15;
+  border: 1px solid #facc15;
+}
+#ss-earn-toast {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #86efac;
+}
+#ss-warning-toast.ss-toast-visible,
+#ss-earn-toast.ss-toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Loading state inside quiz card ────────────────────── */
+.ss-loading-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 0 16px;
+  gap: 12px;
+}
+.ss-spinner {
+  width: 28px; height: 28px;
+  border: 3px solid #e5e7eb;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: ss-spin 0.7s linear infinite;
+}
+@keyframes ss-spin { to { transform: rotate(360deg); } }
+.ss-loading-text { font-size: 13px; color: #9ca3af; }
+
+/* ─── Quiz overlay — full-screen centered ────────────────── */
+#ss-quiz-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483645;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10,10,20,0.55);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+#ss-quiz-overlay.ss-visible { opacity: 1; pointer-events: all; }
+
+/* ─── Redirect overlay — bottom-right corner ─────────────── */
+#ss-redirect-overlay {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483645;
+  opacity: 0;
+  transform: translateY(12px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+#ss-redirect-overlay.ss-visible { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+/* ─── Shared card ────────────────────────────────────────── */
+#ss-quiz-card,
+#ss-redirect-card {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 24px 24px 20px;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+/* ─── Header ─────────────────────────────────────────────── */
+.ss-quiz-header, .ss-redirect-header {
+  display: flex; align-items: center;
+  justify-content: space-between; margin-bottom: 10px;
+}
+.ss-logo { font-size: 13px; font-weight: 700; color: #6366f1; }
+.ss-quiz-badge {
+  font-size: 11px; background: #f3f4f6; color: #6b7280;
+  padding: 2px 9px; border-radius: 999px; font-weight: 500;
+}
+
+/* ─── Quiz internals ─────────────────────────────────────── */
+.ss-quiz-source { font-size: 11px; color: #9ca3af; margin-bottom: 6px; }
+.ss-earn-note   {
+  font-size: 12px; color: #16a34a; font-weight: 600;
+  background: #f0fdf4; border: 1px solid #86efac;
+  border-radius: 6px; padding: 4px 10px; margin-bottom: 10px;
+  display: inline-block;
+}
+.ss-quiz-question {
+  font-size: 15px; font-weight: 600; color: #111827;
+  line-height: 1.5; margin: 0 0 14px;
+}
+
+/* ─── Choice buttons (MC only) ───────────────────────────── */
+.ss-choice-col { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.ss-choice-btn {
+  padding: 10px 14px;
+  border: 1.5px solid #e5e7eb; border-radius: 10px;
+  background: #f9fafb; font-size: 14px; font-weight: 500;
+  color: #374151; cursor: pointer; font-family: inherit;
+  transition: background 0.15s, border-color 0.15s; text-align: left;
+}
+.ss-choice-btn:hover:not(:disabled) { background: #ede9fe; border-color: #c4b5fd; }
+.ss-choice-btn:disabled { cursor: default; }
+.ss-choice-btn.ss-correct   { background: #dcfce7; border-color: #16a34a; color: #15803d; }
+.ss-choice-btn.ss-wrong     { background: #fee2e2; border-color: #dc2626; color: #b91c1c; }
+.ss-choice-btn.ss-wrong-opt { background: #f9fafb; border-color: #e5e7eb; opacity: 0.45; }
+
+/* ─── Feedback ───────────────────────────────────────────── */
+.ss-quiz-feedback {
+  font-size: 13px; font-weight: 600;
+  padding: 8px 12px; border-radius: 8px; margin-bottom: 14px;
+}
+.ss-fb-correct { background: #f0fdf4; color: #16a34a; }
+.ss-fb-wrong   { background: #fef2f2; color: #dc2626; }
+
+/* ─── Tab list (shared) ──────────────────────────────────── */
+.ss-tabs-label {
+  font-size: 11px; color: #9ca3af; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 6px;
+}
+.ss-tab-list   { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+.ss-tab-btn {
+  display: flex; align-items: center; gap: 8px;
+  background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 9px;
+  padding: 8px 10px; cursor: pointer; text-align: left;
+  font-family: inherit; width: 100%;
+  transition: background 0.15s, border-color 0.15s;
+}
+.ss-tab-btn:hover  { background: #ede9fe; border-color: #c4b5fd; }
+.ss-tab-icon       { font-size: 14px; flex-shrink: 0; }
+.ss-tab-title      { font-size: 13px; color: #374151; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ss-tab-arrow      { font-size: 13px; color: #6366f1; flex-shrink: 0; }
+
+/* ─── Continue / keep scrolling ──────────────────────────── */
+#ss-quiz-continue, #ss-keep-scrolling {
+  width: 100%; padding: 9px 0; border: none; border-radius: 9px;
+  background: #f3f4f6; color: #6b7280; font-size: 13px;
+  font-weight: 600; cursor: pointer; font-family: inherit;
+  transition: opacity 0.15s;
+}
+#ss-quiz-continue:hover, #ss-keep-scrolling:hover { opacity: 0.75; }
+
+/* ─── Redirect extras ────────────────────────────────────── */
+.ss-redirect-msg { font-size: 14px; color: #374151; line-height: 1.5; margin: 0 0 14px; }
+.ss-no-tabs      { font-size: 13px; color: #9ca3af; margin: 0 0 14px; }
+
+/* ─── Hard Freeze ────────────────────────────────────────── */
+#ss-freeze-overlay {
+  position: fixed; inset: 0; z-index: 2147483647;
+  background: rgba(10,10,20,0.88);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity 0.3s ease; pointer-events: none;
+}
+#ss-freeze-overlay.ss-visible { opacity: 1; pointer-events: all; }
+
+#ss-freeze-card {
+  background: #fff; border-radius: 20px;
+  padding: 32px 26px 26px; width: 390px;
+  max-width: calc(100vw - 32px); max-height: 85vh; overflow-y: auto;
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+}
+.ss-freeze-icon { font-size: 44px; margin-bottom: 8px; }
+.ss-freeze-msg  { font-size: 15px; color: #374151; line-height: 1.6; margin: 0 0 20px; }
+
+#ss-override-freeze {
+  background: none; border: none; color: #9ca3af;
+  font-size: 13px; cursor: pointer; padding: 8px 0;
+  font-family: inherit; text-decoration: underline;
+  text-underline-offset: 2px; display: block; width: 100%;
+  margin-top: 6px;
+}
+#ss-override-freeze:hover { color: #6b7280; }
+
+/* ─── Weekly Banner ──────────────────────────────────────── */
+#ss-weekly-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 2147483646;
+  background: linear-gradient(90deg,#6366f1,#8b5cf6);
+  color: #fff; padding: 12px 24px;
+  display: flex; justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.ss-weekly-inner { display: flex; align-items: center; gap: 16px; max-width: 720px; width: 100%; }
+.ss-weekly-inner .ss-logo { color: #fff; white-space: nowrap; }
+.ss-weekly-inner p { font-size: 14px; margin: 0; flex: 1; line-height: 1.4; }
+#ss-weekly-close {
+  background: rgba(255,255,255,0.2); border: none; color: #fff;
+  padding: 5px 14px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; white-space: nowrap; font-family: inherit;
+}
