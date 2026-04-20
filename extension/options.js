@@ -1,24 +1,31 @@
 // ============================================================
-// ScrollSense — options.js  v4.0
-// Simple, reliable: FileReader for text files only.
-// No external libraries. No CDN. No binary parsing.
+// ScrollSense — options.js  v5.0
+// Upload files → background.js calls Ollama → stores question bank
+// This page polls storage for progress and shows it live.
 // ============================================================
 
-// ─── Elements ────────────────────────────────────────────────
 const dropZone     = document.getElementById("drop-zone");
 const fileInput    = document.getElementById("file-input");
 const pasteArea    = document.getElementById("paste-area");
 const pasteName    = document.getElementById("paste-name");
 const addPasteBtn  = document.getElementById("add-paste-btn");
-const charCount    = document.getElementById("char-count");
+const charCountEl  = document.getElementById("char-count");
 const statusEl     = document.getElementById("status");
 const fileListEl   = document.getElementById("file-list");
 const emptyLib     = document.getElementById("empty-lib");
-const libCount     = document.getElementById("lib-count");
 const clearAllBtn  = document.getElementById("clear-all-btn");
-const progressWrap = document.getElementById("progress-wrap");
-const progressFill = document.getElementById("progress-fill");
-const progressLbl  = document.getElementById("progress-label");
+const genProgress  = document.getElementById("gen-progress");
+const genFill      = document.getElementById("gen-fill");
+const genCount     = document.getElementById("gen-count");
+const genLabel     = document.getElementById("gen-label");
+const genStatus    = document.getElementById("gen-status");
+const bankCount    = document.getElementById("bank-count");
+const bankSub      = document.getElementById("bank-sub");
+
+let pollInterval = null;
+
+// ─── Init ─────────────────────────────────────────────────────
+loadAll();
 
 // ─── Tab switching ────────────────────────────────────────────
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -31,14 +38,8 @@ document.querySelectorAll(".tab-btn").forEach((btn) => {
   });
 });
 
-// ─── Load library on open ─────────────────────────────────────
-loadLibrary();
-
-// ─── Drag & drop ──────────────────────────────────────────────
-dropZone.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  dropZone.classList.add("drag-over");
-});
+// ─── Drop zone ────────────────────────────────────────────────
+dropZone.addEventListener("dragover",  (e) => { e.preventDefault(); dropZone.classList.add("drag-over"); });
 dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
 dropZone.addEventListener("drop", (e) => {
   e.preventDefault();
@@ -47,47 +48,37 @@ dropZone.addEventListener("drop", (e) => {
 });
 fileInput.addEventListener("change", () => {
   handleFiles(Array.from(fileInput.files || []));
-  fileInput.value = ""; // allow re-selecting the same file
+  fileInput.value = "";
 });
 
-// ─── Paste panel ──────────────────────────────────────────────
+// ─── Paste ────────────────────────────────────────────────────
 pasteArea.addEventListener("input", () => {
-  const len = pasteArea.value.length;
-  charCount.textContent = len.toLocaleString();
-  addPasteBtn.disabled = len < 20;
+  charCountEl.textContent = pasteArea.value.length.toLocaleString();
+  addPasteBtn.disabled = pasteArea.value.trim().length < 20;
 });
 
 addPasteBtn.addEventListener("click", async () => {
   const text = pasteArea.value.trim();
   const name = pasteName.value.trim() || ("Notes — " + new Date().toLocaleDateString());
   if (text.length < 20) { showStatus("Paste at least a sentence of text.", "error"); return; }
-
   addPasteBtn.disabled = true;
   addPasteBtn.textContent = "Saving…";
-
-  const res = await saveFile(name, text);
-
-  addPasteBtn.textContent = "Save to Library";
-  addPasteBtn.disabled = false;
-
-  if (res && res.ok) {
-    showStatus("✅ \"" + name + "\" saved to your library.", "success");
-    pasteArea.value = "";
-    pasteName.value = "";
-    charCount.textContent = "0";
-    addPasteBtn.disabled = true;
-    loadLibrary();
-  } else {
-    showStatus("❌ Save failed: " + ((res && res.error) || "unknown error"), "error");
-  }
+  await uploadFile(name, text);
+  addPasteBtn.textContent = "Save & Generate Questions";
+  pasteArea.value = "";
+  pasteName.value = "";
+  charCountEl.textContent = "0";
+  addPasteBtn.disabled = true;
 });
 
 // ─── Clear all ────────────────────────────────────────────────
 clearAllBtn.addEventListener("click", () => {
-  if (!confirm("Remove all files from your study library?")) return;
+  if (!confirm("Remove all files and clear the question bank?")) return;
   chrome.runtime.sendMessage({ type: "CLEAR_ALL_QUIZ_FILES" }, () => {
-    showStatus("Library cleared.", "info");
-    loadLibrary();
+    showStatus("Library and question bank cleared.", "info");
+    stopPolling();
+    genProgress.classList.remove("visible");
+    loadAll();
   });
 });
 
@@ -96,116 +87,117 @@ const SUPPORTED = ["txt", "md", "html", "csv"];
 
 async function handleFiles(files) {
   if (!files.length) return;
+  const bad  = files.filter((f) => !SUPPORTED.includes(ext(f.name)));
+  const good = files.filter((f) =>  SUPPORTED.includes(ext(f.name)));
 
-  // Reject unsupported types immediately
-  const badFiles = files.filter((f) => !SUPPORTED.includes(ext(f.name)));
-  const goodFiles = files.filter((f) => SUPPORTED.includes(ext(f.name)));
-
-  if (badFiles.length && !goodFiles.length) {
-    showStatus(
-      "❌ Unsupported file type(s): " + badFiles.map((f) => f.name).join(", ") +
-      ". Use .txt, .md, .html, or .csv. See the PDF/DOCX conversion tip above.",
-      "error"
-    );
+  if (!good.length) {
+    showStatus("❌ Use .txt, .md, .html, or .csv. See the PDF/DOCX tip above.", "error");
     return;
   }
 
-  setProgress(true, "Reading " + goodFiles.length + " file(s)…", 10);
-
-  let added = 0;
-  const failed = [];
-
-  for (let i = 0; i < goodFiles.length; i++) {
-    const file = goodFiles[i];
-    const pct = Math.round(((i + 1) / goodFiles.length) * 100);
-    setProgress(true, "Reading: " + file.name, pct);
-
+  for (const file of good) {
     let text = "";
-    try {
-      text = await readFileAsText(file);
-    } catch (e) {
-      failed.push(file.name + " (could not read)");
-      continue;
+    try { text = await readAsText(file); } catch {
+      showStatus("❌ Could not read " + file.name, "error"); continue;
     }
-
     if (!text || text.trim().length < 20) {
-      failed.push(file.name + " (file appears empty)");
-      continue;
+      showStatus("❌ " + file.name + " appears empty.", "error"); continue;
     }
-
-    const res = await saveFile(file.name, text.trim());
-    if (res && res.ok) {
-      added++;
-    } else {
-      failed.push(file.name + " (storage error: " + ((res && res.error) || "unknown") + ")");
-    }
+    await uploadFile(file.name, text.trim());
   }
 
-  setProgress(false);
-
-  if (added > 0 && !failed.length) {
-    showStatus("✅ " + added + " file" + (added > 1 ? "s" : "") + " saved to your library.", "success");
-  } else if (added > 0 && failed.length) {
-    showStatus(
-      "✅ " + added + " saved. ⚠️ Skipped: " + failed.join(", "),
-      "info"
-    );
-  } else {
-    showStatus("❌ Could not save: " + failed.join(", "), "error");
+  if (bad.length) {
+    showStatus((statusEl.textContent ? statusEl.textContent + " " : "") +
+      "Skipped: " + bad.map(f => f.name).join(", ") + " (unsupported type).", "info");
   }
-
-  if (badFiles.length) {
-    showStatus(
-      (statusEl.textContent ? statusEl.textContent + " " : "") +
-      "Note: " + badFiles.map((f) => f.name).join(", ") + " skipped (unsupported type — see PDF/DOCX tip).",
-      "info"
-    );
-  }
-
-  loadLibrary();
 }
 
-// ─── Read a text file ─────────────────────────────────────────
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error("FileReader error"));
-    reader.readAsText(file, "UTF-8");
-  });
+// ─── Upload one file to background + start progress polling ──
+async function uploadFile(name, content) {
+  showStatus("📤 Sending to Ollama… this may take a minute.", "info");
+  genProgress.classList.add("visible");
+  genFill.style.width = "0%";
+  genCount.textContent = "0 / 20";
+  genLabel.textContent = "Generating questions from \"" + name + "\"…";
+  genStatus.textContent = "Ollama is reading your file. Don't close this tab.";
+
+  startPolling();
+
+  const res = await sendMsg({ type: "SAVE_QUIZ_FILE", name, content });
+  // sendResponse fires immediately (before generation is done)
+  // so we rely on polling to track actual progress
+
+  if (!res || !res.ok) {
+    showStatus("❌ Failed to save file: " + (res?.error || "unknown error"), "error");
+    stopPolling();
+    genProgress.classList.remove("visible");
+  }
+
+  loadAll();
 }
 
-// ─── Save to background storage ──────────────────────────────
-function saveFile(name, content) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "SAVE_QUIZ_FILE", name, content }, (res) => {
-      if (chrome.runtime.lastError) {
-        resolve({ ok: false, error: chrome.runtime.lastError.message });
-      } else {
-        resolve(res);
+// ─── Poll chrome.storage for generation progress ──────────────
+function startPolling() {
+  stopPolling();
+  pollInterval = setInterval(async () => {
+    const stored = await getStorage(["quizGenProgress", "questionBank"]);
+    const prog   = stored.quizGenProgress;
+    const bank   = stored.questionBank || [];
+
+    bankCount.textContent = bank.length;
+    bankSub.textContent   = bank.length
+      ? bank.length + " questions ready"
+      : "Generating…";
+
+    if (prog) {
+      const done      = prog.done      || 0;
+      const total     = prog.total     || 20;
+      const generated = prog.generated || prog.questions?.length || 0;
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      genFill.style.width  = pct + "%";
+      genCount.textContent = generated + " questions (" + done + "/" + total + " chunks processed)";
+
+      if (prog.complete) {
+        if (generated > 0) {
+          genLabel.textContent  = "✅ Done! " + generated + " questions ready.";
+          genStatus.textContent = "Questions saved — they'll pop up as you scroll Instagram.";
+          showStatus("✅ " + generated + " questions generated from \"" + prog.fileName + "\".", "success");
+        } else {
+          genLabel.textContent  = "⚠️ Generation finished but 0 questions were saved.";
+          genStatus.textContent = "Check that Ollama is running (ollama serve) and the model is pulled (ollama pull llama3.2).";
+          showStatus("⚠️ 0 questions generated. Make sure Ollama is running and try again.", "error");
+        }
+        stopPolling();
+        loadAll();
       }
-    });
-  });
+    }
+  }, 1000);
 }
 
-// ─── Remove one file ─────────────────────────────────────────
-function removeFile(name) {
-  chrome.runtime.sendMessage({ type: "REMOVE_QUIZ_FILE", name }, () => {
-    loadLibrary();
-  });
+function stopPolling() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
 }
 
-// ─── Render the library ───────────────────────────────────────
-function loadLibrary() {
+// ─── Load library + bank size ─────────────────────────────────
+function loadAll() {
   chrome.runtime.sendMessage({ type: "GET_QUIZ_FILES" }, (res) => {
-    const files = (res && res.files) || [];
-    libCount.textContent = files.length === 1 ? "1 file saved" : files.length + " files saved";
-    emptyLib.style.display = files.length ? "none" : "block";
+    if (!res) return;
+    const files    = res.files  || [];
+    const bankSize = res.bankSize || 0;
 
+    bankCount.textContent = bankSize;
+    bankSub.textContent   = bankSize
+      ? bankSize + " questions ready — quizzes will appear while you scroll"
+      : files.length
+        ? "Generating… keep this tab open"
+        : "Upload a file to generate questions";
+
+    // File list
+    emptyLib.style.display = files.length ? "none" : "block";
     fileListEl.querySelectorAll(".file-item").forEach((el) => el.remove());
 
     files.forEach((f) => {
-      const e = ext(f.name);
+      const e    = ext(f.name);
       const icon = { md: "📝", html: "🌐", csv: "📊" }[e] || "📄";
       const kb   = f.charCount ? (f.charCount / 1000).toFixed(1) + "k chars" : "";
       const date = f.addedAt ? new Date(f.addedAt).toLocaleDateString() : "";
@@ -218,40 +210,59 @@ function loadLibrary() {
           "<div class=\"file-name\" title=\"" + escHtml(f.name) + "\">" + escHtml(f.name) + "</div>" +
           "<div class=\"file-meta\">" + [kb, date].filter(Boolean).join(" · ") + "</div>" +
         "</div>" +
-        "<button class=\"file-del\" title=\"Remove this file\">✕</button>";
+        "<button class=\"file-del\" title=\"Remove\">✕</button>";
 
       item.querySelector(".file-del").addEventListener("click", () => {
-        if (confirm("Remove \"" + f.name + "\" from your library?")) removeFile(f.name);
+        if (confirm("Remove \"" + f.name + "\" and its questions?")) {
+          chrome.runtime.sendMessage({ type: "REMOVE_QUIZ_FILE", name: f.name }, () => loadAll());
+        }
       });
-
       fileListEl.appendChild(item);
+    });
+
+    // If generation is in progress, resume polling
+    if (res.progress && !res.progress.complete && !pollInterval) {
+      startPolling();
+      genProgress.classList.add("visible");
+    }
+  });
+}
+
+// ─── Helpers ──────────────────────────────────────────────────
+function readAsText(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload  = () => resolve(r.result);
+    r.onerror = () => reject(new Error("read failed"));
+    r.readAsText(file, "UTF-8");
+  });
+}
+
+function sendMsg(msg) {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage(msg, (res) => {
+      if (chrome.runtime.lastError) resolve(null);
+      else resolve(res);
     });
   });
 }
 
-// ─── UI helpers ───────────────────────────────────────────────
-function ext(filename) {
-  return (filename.split(".").pop() || "").toLowerCase();
+function getStorage(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, resolve);
+  });
 }
 
-function setProgress(visible, label, pct) {
-  progressWrap.classList.toggle("visible", visible);
-  if (label) progressLbl.textContent = label;
-  if (pct !== undefined) progressFill.style.width = pct + "%";
-}
+function ext(filename) { return (filename.split(".").pop() || "").toLowerCase(); }
 
 function showStatus(msg, type) {
   statusEl.textContent = msg;
   statusEl.className = "status " + (type || "");
 }
-
 function clearStatus() {
   statusEl.textContent = "";
   statusEl.className = "status";
 }
-
 function escHtml(s) {
-  return String(s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }

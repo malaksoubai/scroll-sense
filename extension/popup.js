@@ -76,13 +76,34 @@ function loadStats() {
 
 // ─── Ollama dot ───────────────────────────────────────────────
 async function checkOllama() {
-  const dot = document.getElementById("ollama-dot");
+  const dot   = document.getElementById("ollama-dot");
+  const label = document.getElementById("model-name");
   if (!dot) return;
+
+  // Use AbortController for broad Chrome version compatibility
+  const controller = new AbortController();
+  const timeout    = setTimeout(() => controller.abort(), 2000);
+
   try {
-    const res = await fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(2500) });
-    dot.classList.add(res.ok ? "online" : "offline");
+    const res = await fetch("http://localhost:11434/api/tags", {
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (res.ok) {
+      dot.classList.remove("offline");
+      dot.classList.add("online");
+      if (label) label.title = "Ollama is running";
+    } else {
+      throw new Error("not ok");
+    }
   } catch {
+    clearTimeout(timeout);
+    dot.classList.remove("online");
     dot.classList.add("offline");
+    if (label) {
+      label.textContent = "llama3.2 (offline)";
+      label.title = "Ollama is not running — start it with: ollama serve";
+    }
   }
 }
 

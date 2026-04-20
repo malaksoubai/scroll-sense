@@ -1,14 +1,17 @@
 // ============================================================
-// ScrollSense — background.js  v2.0
+// ScrollSense — background.js  v3.0
+// Option C: Ollama generates question bank when file is uploaded
+// (from service worker = no CORS). Content script reads from
+// local storage during scrolling = no network call needed.
 // ============================================================
 
 const OLLAMA_URL   = "http://localhost:11434/api/generate";
 const OLLAMA_MODEL = "llama3.2";
-const EARN_SECONDS = 120; // +2 min per correct file-quiz answer
+const EARN_SECONDS = 120; // +2 min per correct answer
+const QUESTIONS_PER_FILE = 20; // questions to generate per uploaded file
 
 const DEFAULT_SETTINGS = {
   dailyBudgetMinutes:   20,
-  postsPerIntervention: 10,
   hardFreezeEnabled:    true,
   model:                OLLAMA_MODEL,
 };
@@ -48,7 +51,7 @@ async function ensureTodayData() {
     await chrome.storage.local.set({
       [key]: {
         usedSeconds:    0,
-        earnedSeconds:  0,   // bonus seconds from correct quiz answers
+        earnedSeconds:  0,
         overrideCount:  0,
         correctAnswers: 0,
         wrongAnswers:   0,
@@ -59,26 +62,21 @@ async function ensureTodayData() {
   }
 }
 
-// ─── Streak calculator ────────────────────────────────────────
-// Returns number of consecutive days (ending yesterday) where
-// usedSeconds <= budgetSeconds. Today doesn't count yet.
+// ─── Streak ───────────────────────────────────────────────────
 async function calculateStreak() {
-  const settings = await getSettings();
+  const settings  = await getSettings();
   const budgetSec = settings.dailyBudgetMinutes * 60;
   let streak = 0;
   for (let i = 1; i <= 30; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = "day_" + d.toISOString().slice(0, 10);
-    const r = await chrome.storage.local.get(key);
+    const r   = await chrome.storage.local.get(key);
     const day = r[key];
-    if (!day) break; // no data = streak broken
-    const effectiveBudget = budgetSec + (day.earnedSeconds || 0);
-    if (day.usedSeconds <= effectiveBudget) {
-      streak++;
-    } else {
-      break;
-    }
+    if (!day) break;
+    const effective = budgetSec + (day.earnedSeconds || 0);
+    if (day.usedSeconds <= effective) streak++;
+    else break;
   }
   return streak;
 }
@@ -95,7 +93,7 @@ async function getProductiveTabs() {
     .slice(0, 6);
 }
 
-// ─── Ollama ───────────────────────────────────────────────────
+// ─── Ollama (called from service worker — no CORS issue) ──────
 async function callOllama(prompt, model) {
   try {
     const res = await fetch(OLLAMA_URL, {
@@ -103,47 +101,124 @@ async function callOllama(prompt, model) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: model || OLLAMA_MODEL, prompt, stream: false }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
-    return data.response?.trim() || null;
+    return (data.response || "").trim() || null;
   } catch (err) {
     console.warn("[ScrollSense] Ollama:", err.message);
     return null;
   }
 }
 
-// ─── Generate MC quiz from FILE content ──────────────────────
-async function generateFileQuiz(fileContent, fileName, model) {
-  // Trim to avoid hitting token limits — use first ~2000 chars
-  const snippet = fileContent.slice(0, 2000);
-
-  const prompt = `You are a quiz generator for a productivity browser extension.
-A user uploaded study material. Here is an excerpt:
----
-${snippet}
----
-Generate ONE multiple-choice question (4 options) based on the content above.
-Respond ONLY with valid JSON — no markdown, no explanation:
-{"question": "...", "options": ["A","B","C","D"], "correctIndex": 0}
-"correctIndex" is the 0-based index of the correct answer. Be factual and specific to the text.`;
+// ─── Generate ONE question from a text snippet ────────────────
+async function generateOneQuestion(snippet, fileName, model) {
+  const prompt =
+    "You are a quiz generator. Given the study excerpt below, write ONE multiple-choice question.\n\n" +
+    "EXCERPT:\n" + snippet + "\n\n" +
+    "Rules:\n" +
+    "- Write a clear factual question about something explicitly stated in the excerpt.\n" +
+    "- Provide exactly 4 answer options (A, B, C, D).\n" +
+    "- One option must be correct; the others plausible but wrong.\n" +
+    "- correctIndex is the 0-based index (0=A, 1=B, 2=C, 3=D) of the correct answer.\n\n" +
+    "Respond with ONLY this JSON object and absolutely nothing else — no markdown, no explanation:\n" +
+    '{"question": "your question here", "options": ["A answer", "B answer", "C answer", "D answer"], "correctIndex": 0}';
 
   const raw = await callOllama(prompt, model);
+  console.log("[ScrollSense] Ollama raw response:", raw ? raw.slice(0, 200) : "null");
+  if (!raw) return null;
+
   try {
-    const cleaned = (raw || "").replace(/```json|```/g, "").trim();
-    const match = cleaned.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : cleaned);
-  } catch {
+    // Strip any markdown fences and find the JSON object
+    const cleaned = raw.replace(/```json|```/gi, "").trim();
+    const match   = cleaned.match(/\{[\s\S]*\}/);
+    if (!match) { console.warn("[ScrollSense] No JSON object found in response"); return null; }
+    const q = JSON.parse(match[0]);
+
+    // Tolerant validation — coerce types where Ollama is inconsistent
+    if (!q.question || typeof q.question !== "string") return null;
+    if (!Array.isArray(q.options)) return null;
+    // Accept 4 options; if Ollama gave 3 or 5 pad/trim to 4
+    while (q.options.length < 4) q.options.push("None of the above");
+    if (q.options.length > 4) q.options = q.options.slice(0, 4);
+    // Coerce correctIndex to number (Ollama sometimes returns a string)
+    q.correctIndex = parseInt(String(q.correctIndex), 10);
+    if (isNaN(q.correctIndex) || q.correctIndex < 0 || q.correctIndex > 3) q.correctIndex = 0;
+
+    return q;
+  } catch (err) {
+    console.warn("[ScrollSense] JSON parse failed:", err.message, "| raw:", raw.slice(0, 300));
     return null;
   }
 }
 
+// ─── Build question bank for a file ───────────────────────────
+async function buildQuestionBank(fileName, content, model, totalTarget) {
+  // Split content into chunks — always generate at least one question
+  // even if content is shorter than chunkSize
+  const chunkSize = 800;
+  const chunks    = [];
+
+  if (content.length <= chunkSize) {
+    // Short content: use it whole, repeat to hit totalTarget
+    for (let i = 0; i < totalTarget; i++) chunks.push(content);
+  } else {
+    // Long content: sliding window with overlap
+    for (let i = 0; i < content.length && chunks.length < totalTarget; i += chunkSize - 200) {
+      chunks.push(content.slice(i, i + chunkSize));
+    }
+    // If we have fewer chunks than target, cycle through them
+    while (chunks.length < totalTarget) {
+      chunks.push(chunks[chunks.length % Math.max(chunks.length, 1)]);
+    }
+  }
+
+  const questions = [];
+  const actualTotal = Math.min(chunks.length, totalTarget);
+  console.log("[ScrollSense] buildQuestionBank: content.length=" + content.length +
+    " chunks=" + chunks.length + " actualTotal=" + actualTotal + " model=" + model);
+
+  for (let i = 0; i < actualTotal; i++) {
+    console.log("[ScrollSense] Generating question " + (i+1) + "/" + actualTotal);
+    const q = await generateOneQuestion(chunks[i], fileName, model);
+    if (q) {
+      q.fileName = fileName;
+      questions.push(q);
+    }
+    // Update progress after every attempt so options page always shows movement
+    await chrome.storage.local.set({
+      quizGenProgress: {
+        fileName,
+        done: i + 1,
+        total: actualTotal,
+        generated: questions.length,
+        questions,
+        complete: false,
+      }
+    });
+  }
+  return questions;
+}
+
+// ─── Get next question from bank ─────────────────────────────
+// Rotates through questions, tracking which were recently used.
+async function getNextQuestion() {
+  const stored = await chrome.storage.local.get(["questionBank", "questionBankIndex"]);
+  const bank   = stored.questionBank || [];
+  if (!bank.length) return null;
+
+  let idx = (stored.questionBankIndex || 0) % bank.length;
+  const q = bank[idx];
+  await chrome.storage.local.set({ questionBankIndex: idx + 1 });
+  return q;
+}
 
 // ─── Generate freeze message ──────────────────────────────────
 async function generateFreezeMessage(usedMin, budgetMin, overrides, tabTitle, model) {
-  const prompt = `Calm screen-time coach. Brief, no lecturing, don't start with "You've".
-Budget: ${budgetMin} min | Used: ${usedMin} min | Overrides: ${overrides}
-Prior tab: "${tabTitle || "your work"}"
-Write exactly 1 short sentence referencing the tab title if available.`;
+  const prompt =
+    "Calm screen-time coach. Brief, no lecturing, don't start with \"You've\".\n" +
+    "Budget: " + budgetMin + " min | Used: " + usedMin + " min | Overrides: " + overrides + "\n" +
+    "Prior tab: \"" + (tabTitle || "your work") + "\"\n" +
+    "Write exactly 1 short sentence referencing the tab title if available.";
   return callOllama(prompt, model);
 }
 
@@ -152,54 +227,44 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     switch (msg.type) {
 
-      // Switch to an existing tab by id (bring it to focus)
+      // ── Switch to existing tab
       case "SWITCH_TAB": {
         try {
           await chrome.tabs.update(msg.tabId, { active: true });
-          const win = await chrome.tabs.get(msg.tabId);
-          await chrome.windows.update(win.windowId, { focused: true });
+          const tab = await chrome.tabs.get(msg.tabId);
+          await chrome.windows.update(tab.windowId, { focused: true });
           sendResponse({ ok: true });
-        } catch {
-          sendResponse({ ok: false });
-        }
+        } catch { sendResponse({ ok: false }); }
         break;
       }
 
-      // Full status — includes streak + earned seconds
+      // ── Full status for content.js
       case "GET_STATUS": {
         const [settings, today, streak] = await Promise.all([
           getSettings(), getTodayData(), calculateStreak()
         ]);
-        const baseBudget = settings.dailyBudgetMinutes * 60;
-        const budgetSec  = baseBudget + (today.earnedSeconds || 0);
-        sendResponse({
-          budgetSec,
-          usedSec:       today.usedSeconds,
-          overrideCount: today.overrideCount,
-          streak,
-          settings,
-        });
+        const budgetSec = (settings.dailyBudgetMinutes * 60) + (today.earnedSeconds || 0);
+        sendResponse({ budgetSec, usedSec: today.usedSeconds,
+          overrideCount: today.overrideCount, streak, settings });
         break;
       }
 
-      // Heartbeat tick
+      // ── 1-second heartbeat
       case "TICK": {
-        const today = await getTodayData();
+        const today    = await getTodayData();
+        const settings = await getSettings();
         today.usedSeconds += 1;
         await saveTodayData(today);
-        // Return effective budget too so pill stays live
-        const settings = await getSettings();
         const budgetSec = (settings.dailyBudgetMinutes * 60) + (today.earnedSeconds || 0);
         sendResponse({ usedSeconds: today.usedSeconds, budgetSec });
         break;
       }
 
-      // Next intervention — quiz (files ONLY) or redirect card (tabs only)
+      // ── Next intervention: quiz from bank OR redirect card
       case "GET_INTERVENTION": {
         const [settings, tabs, today] = await Promise.all([
           getSettings(), getProductiveTabs(), getTodayData()
         ]);
-
         today.interventions = (today.interventions || 0) + 1;
         today.outcomeLog.push({ outcome: "intervention", ts: Date.now() });
         await saveTodayData(today);
@@ -207,71 +272,62 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         const isQuizTurn = today.interventions % 2 === 1;
 
         if (isQuizTurn) {
-          // Quiz draws ONLY from uploaded files — never from open tabs
-          const stored = await chrome.storage.local.get("quizFiles");
-          const quizFiles = stored.quizFiles || [];
-
-          if (!quizFiles.length) {
-            sendResponse({ kind: "quiz", quiz: null, tabs, source: "none" });
-            break;
+          // Pull next question from pre-generated bank — no Ollama call here
+          const question = await getNextQuestion();
+          if (!question) {
+            // Bank empty — tell content.js to show upload prompt
+            sendResponse({ kind: "quiz", question: null, tabs, bankEmpty: true });
+          } else {
+            sendResponse({ kind: "quiz", question, tabs, bankEmpty: false });
           }
-
-          // Send file snippet + model to content.js — it will call Ollama directly
-          // (content scripts can fetch localhost; MV3 service workers sometimes cannot)
-          const file = quizFiles[Math.floor(Math.random() * quizFiles.length)];
-          const snippet = file.content.slice(0, 2000);
-          sendResponse({ kind: "quiz", quiz: null, tabs, source: "file",
-            fileName: file.name, snippet, model: settings.model });
         } else {
           sendResponse({ kind: "redirect", tabs });
         }
         break;
       }
 
-      // Freeze message
+      // ── Freeze message (from service worker = no CORS)
       case "GET_FREEZE_MSG": {
         const [settings, today] = await Promise.all([getSettings(), getTodayData()]);
         const usedMin = Math.floor(today.usedSeconds / 60);
-        const msg2 = await generateFreezeMessage(
+        const message = await generateFreezeMessage(
           usedMin, settings.dailyBudgetMinutes,
           today.overrideCount, msg.tabTitle || "", settings.model
         );
-        sendResponse({ message: msg2 || "Budget reached — your work tab is still waiting." });
+        sendResponse({ message: message || "Budget reached — your work tab is still waiting." });
         break;
       }
 
-      // Log outcome — handle earn-time on correct file quiz
+      // ── Log outcome
       case "LOG_OUTCOME": {
         const today = await getTodayData();
         today.outcomeLog.push({ outcome: msg.outcome, ts: Date.now() });
-
         if (msg.outcome === "override")     today.overrideCount  = (today.overrideCount  || 0) + 1;
         if (msg.outcome === "quiz_correct") today.correctAnswers = (today.correctAnswers || 0) + 1;
         if (msg.outcome === "quiz_wrong")   today.wrongAnswers   = (today.wrongAnswers   || 0) + 1;
-
-        // Earn time only on file-based correct answers
-        if (msg.outcome === "quiz_correct" && msg.source === "file") {
+        if (msg.outcome === "quiz_correct") {
           today.earnedSeconds = (today.earnedSeconds || 0) + EARN_SECONDS;
         }
-
         await saveTodayData(today);
-        const settings = await getSettings();
+        const settings  = await getSettings();
         const newBudget = (settings.dailyBudgetMinutes * 60) + (today.earnedSeconds || 0);
-        sendResponse({ ok: true, earnedSeconds: today.earnedSeconds || 0, newBudget });
+        sendResponse({ ok: true, newBudget });
         break;
       }
 
-      // Popup stats
+      // ── Popup stats
       case "GET_POPUP_STATS": {
-        const [settings, today, streak] = await Promise.all([
+        const [settings, today, streak]  = await Promise.all([
           getSettings(), getTodayData(), calculateStreak()
         ]);
+        const stored   = await chrome.storage.local.get("questionBank");
+        const bankSize = (stored.questionBank || []).length;
         const budgetSec = (settings.dailyBudgetMinutes * 60) + (today.earnedSeconds || 0);
-        sendResponse({ settings, today, budgetSec, streak });
+        sendResponse({ settings, today, budgetSec, streak, bankSize });
         break;
       }
 
-      // Save settings
+      // ── Save settings
       case "SAVE_SETTINGS": {
         const merged = Object.assign({}, DEFAULT_SETTINGS, msg.settings);
         await chrome.storage.local.set({ settings: merged });
@@ -279,69 +335,115 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
 
-      // Add a file to the quiz library (multiple files supported)
+      // ── Save uploaded file + generate question bank
+      // IMPORTANT: sendResponse is called AFTER generation completes.
+      // This keeps the service worker alive for the full generation loop.
+      // The options page polls storage for progress — it doesn't wait on sendResponse.
       case "SAVE_QUIZ_FILE": {
         try {
-          const stored = await chrome.storage.local.get("quizFiles");
+          // Store the file first
+          const stored    = await chrome.storage.local.get("quizFiles");
           const quizFiles = stored.quizFiles || [];
-          const filtered = quizFiles.filter(f => f.name !== msg.name);
-          // Cap each file at 200k chars to stay well within storage limits
-          const content = (msg.content || "").slice(0, 200000);
+          const filtered  = quizFiles.filter(f => f.name !== msg.name);
+          const content   = (msg.content || "").slice(0, 200000);
           filtered.push({ name: msg.name, content, addedAt: Date.now() });
           await chrome.storage.local.set({ quizFiles: filtered });
-          sendResponse({ ok: true, count: filtered.length });
+
+          // Reset progress so options page polling starts from 0
+          await chrome.storage.local.set({
+            quizGenProgress: { fileName: msg.name, done: 0, total: QUESTIONS_PER_FILE, questions: [], complete: false }
+          });
+
+          // Generate — do this BEFORE sendResponse so service worker stays alive
+          const settings   = await getSettings();
+          // Pass content directly from the message — don't re-read from filtered array
+          // (filtered.map(f => f.content) can fail if content was not stored correctly)
+          const directContent = msg.content || "";
+          console.log("[ScrollSense] SAVE_QUIZ_FILE: name=" + msg.name +
+            " directContent.length=" + directContent.length +
+            " filtered.length=" + filtered.length +
+            " model=" + settings.model);
+          const allContent = directContent.length > 0
+            ? directContent
+            : filtered.map(f => f.content || "").join("\n\n");
+          console.log("[ScrollSense] allContent.length=" + allContent.length +
+            " first100=" + allContent.slice(0, 100));
+          const questions  = await buildQuestionBank(
+            msg.name, allContent, settings.model, QUESTIONS_PER_FILE
+          );
+
+          // Merge with existing bank, shuffle, save
+          const existingStored = await chrome.storage.local.get("questionBank");
+          const existing = (existingStored.questionBank || []).filter(q => q.fileName !== msg.name);
+          const merged   = shuffle([...existing, ...questions]);
+          await chrome.storage.local.set({ questionBank: merged, questionBankIndex: 0 });
+
+          // Mark complete in storage (options page polling will pick this up)
+          await chrome.storage.local.set({
+            quizGenProgress: {
+              fileName: msg.name, done: questions.length,
+              total: QUESTIONS_PER_FILE, questions, complete: true
+            }
+          });
+
+          // NOW send response — service worker stays alive until here
+          sendResponse({ ok: true, count: filtered.length, generated: questions.length });
         } catch (err) {
-          console.error("[ScrollSense] SAVE_QUIZ_FILE failed:", err);
-          sendResponse({ ok: false, error: err.message || "Storage write failed" });
+          console.error("[ScrollSense] SAVE_QUIZ_FILE:", err);
+          sendResponse({ ok: false, error: err.message });
         }
         break;
       }
 
-      // Get all quiz files (names only, not content — for UI display)
+      // ── Get file list (for options page display)
       case "GET_QUIZ_FILES": {
-        const stored = await chrome.storage.local.get("quizFiles");
-        const quizFiles = (stored.quizFiles || []).map(f => ({
-          name: f.name,
-          addedAt: f.addedAt,
-          charCount: f.content?.length || 0,
+        const stored = await chrome.storage.local.get(["quizFiles","questionBank","quizGenProgress"]);
+        const files  = (stored.quizFiles || []).map(f => ({
+          name: f.name, addedAt: f.addedAt, charCount: f.content?.length || 0,
         }));
-        sendResponse({ files: quizFiles });
+        const bankSize = (stored.questionBank || []).length;
+        const progress = stored.quizGenProgress || null;
+        sendResponse({ files, bankSize, progress });
         break;
       }
 
-      // Remove a single file by name
+      // ── Remove one file + rebuild bank without it
       case "REMOVE_QUIZ_FILE": {
-        const stored = await chrome.storage.local.get("quizFiles");
+        const stored    = await chrome.storage.local.get(["quizFiles","questionBank"]);
         const quizFiles = (stored.quizFiles || []).filter(f => f.name !== msg.name);
-        await chrome.storage.local.set({ quizFiles });
-        sendResponse({ ok: true, count: quizFiles.length });
+        const bank      = (stored.questionBank || []).filter(q => q.fileName !== msg.name);
+        await chrome.storage.local.set({ quizFiles, questionBank: bank, questionBankIndex: 0 });
+        sendResponse({ ok: true, count: quizFiles.length, bankSize: bank.length });
         break;
       }
 
-      // Clear ALL quiz files
+      // ── Clear everything
       case "CLEAR_ALL_QUIZ_FILES": {
-        await chrome.storage.local.set({ quizFiles: [] });
+        await chrome.storage.local.set({
+          quizFiles: [], questionBank: [], questionBankIndex: 0, quizGenProgress: null
+        });
         sendResponse({ ok: true });
         break;
       }
 
-      // Weekly summary
+      // ── Weekly summary
       case "WEEKLY_SUMMARY_REQUEST": {
         const keys = Array.from({ length: 7 }, (_, i) => {
           const d = new Date(); d.setDate(d.getDate() - i);
           return "day_" + d.toISOString().slice(0, 10);
         });
         const results = await chrome.storage.local.get(keys);
-        const days = keys.map(k => results[k]).filter(Boolean);
+        const days    = keys.map(k => results[k]).filter(Boolean);
         const totalOverrides = days.reduce((a, d) => a + (d.overrideCount || 0), 0);
         const avgMin = days.length
           ? Math.round(days.reduce((a, d) => a + (d.usedSeconds || 0), 0) / days.length / 60) : 0;
         const settings = await getSettings();
-        const raw = await callOllama(
-          `Reflective productivity coach. User's Instagram: avg ${avgMin} min/day, ${totalOverrides} overrides this week. Write ONE kind insight sentence (max 20 words).`,
+        const insight  = await callOllama(
+          "Reflective productivity coach. User's Instagram: avg " + avgMin +
+          " min/day, " + totalOverrides + " overrides this week. Write ONE kind insight sentence (max 20 words).",
           settings.model
         );
-        sendResponse({ insight: raw || "Small steps each day add up to real change." });
+        sendResponse({ insight: insight || "Small steps each day add up to real change." });
         break;
       }
 
@@ -352,10 +454,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-// ─── Alarms ───────────────────────────────────────────────────
+// ─── Alarm ────────────────────────────────────────────────────
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== "weeklySummary") return;
   chrome.tabs.query({ url: "https://www.instagram.com/*" }, (tabs) => {
     tabs.forEach(tab => chrome.tabs.sendMessage(tab.id, { type: "SHOW_WEEKLY_SUMMARY" }).catch(() => {}));
   });
 });
+
+// ─── Util ─────────────────────────────────────────────────────
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}

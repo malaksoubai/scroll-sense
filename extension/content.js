@@ -1,17 +1,13 @@
 // ============================================================
-// ScrollSense — content.js  v4.0
-// Key fixes:
-//   - Scroll-distance trigger (replaces brittle MutationObserver)
-//   - Ollama called directly from content script (not service worker)
-//   - Tab switching via chrome.tabs.update instead of window.open
+// ScrollSense — content.js  v5.0
+// Quiz questions come from pre-generated local bank — no fetch.
+// Scroll-distance trigger. Tab switching via background.
 // ============================================================
 
 (function () {
   "use strict";
   if (window.__scrollSenseLoaded) return;
   window.__scrollSenseLoaded = true;
-
-  const OLLAMA_URL = "http://localhost:11434/api/generate";
 
   // ─── State ────────────────────────────────────────────────
   let usedSeconds           = 0;
@@ -26,11 +22,10 @@
   let pillEl                = null;
   let overlayEl             = null;
 
-  // Scroll tracking — trigger every N pixels scrolled (not N posts)
-  let totalScrolled         = 0;
+  // Scroll tracking
   let lastScrollY           = window.scrollY;
   let scrollsSinceIntervene = 0;
-  const SCROLL_TRIGGER_PX   = 3000; // ~3 screenlengths of scrolling
+  const SCROLL_TRIGGER_PX   = 3000;
 
   // ─── Boot ─────────────────────────────────────────────────
   init();
@@ -72,16 +67,13 @@
   }
 
   // ─── Scroll tracker ───────────────────────────────────────
-  // Much more reliable than MutationObserver on Instagram.
-  // Fires every SCROLL_TRIGGER_PX pixels of cumulative downward scroll.
   function startScrollTracker() {
     window.addEventListener("scroll", () => {
       if (isFrozen || overlayActive) return;
       const currentY = window.scrollY;
       const delta    = currentY - lastScrollY;
       lastScrollY    = currentY;
-      if (delta <= 0) return; // ignore upward scroll
-
+      if (delta <= 0) return;
       scrollsSinceIntervene += delta;
       if (scrollsSinceIntervene >= SCROLL_TRIGGER_PX) {
         scrollsSinceIntervene = 0;
@@ -141,85 +133,28 @@
     t.textContent = text;
     document.body.appendChild(t);
     requestAnimationFrame(() => t.classList.add("ss-toast-visible"));
-    setTimeout(() => { t.classList.remove("ss-toast-visible"); setTimeout(() => t.remove(), 400); },
-      kind === "warning" ? 4000 : 2500);
+    setTimeout(() => {
+      t.classList.remove("ss-toast-visible");
+      setTimeout(() => t.remove(), 400);
+    }, kind === "warning" ? 4000 : 2500);
   }
 
   // ─── Intervention dispatcher ──────────────────────────────
   async function triggerIntervention() {
     if (overlayActive || isFrozen) return;
     overlayActive = true;
-
     const res = await sendMsg({ type: "GET_INTERVENTION" });
     if (!res) { overlayActive = false; return; }
 
     if (res.kind === "quiz") {
-      // If background sent a snippet, we call Ollama directly from here
-      if (res.snippet) {
-        showLoadingOverlay(res.fileName);
-        const quiz = await callOllamaForQuiz(res.snippet, res.fileName, res.model);
-        if (quiz) showQuizOverlay(quiz, res.tabs, res.fileName);
-        else      showNoFileOverlay(res.tabs); // Ollama failed
-      } else {
-        showNoFileOverlay(res.tabs); // no files uploaded
-      }
+      if (res.bankEmpty) showNoFileOverlay(res.tabs);
+      else               showQuizOverlay(res.question, res.tabs);
     } else {
       showRedirectOverlay(res.tabs);
     }
   }
 
-  // ─── Call Ollama from content script ─────────────────────
-  // Content scripts CAN fetch localhost reliably. Service workers sometimes cannot.
-  async function callOllamaForQuiz(snippet, fileName, model) {
-    const prompt =
-      "You are a quiz generator for a browser extension.\n" +
-      "A user is studying: \"" + (fileName || "study material") + "\"\n" +
-      "Here is an excerpt:\n---\n" + snippet + "\n---\n" +
-      "Generate ONE multiple-choice question with exactly 4 options based ONLY on the text above.\n" +
-      "Respond with ONLY this JSON and nothing else:\n" +
-      '{"question":"...","options":["...","...","...","..."],"correctIndex":0}\n' +
-      "correctIndex is 0-based. No markdown, no explanation, no extra text.";
-
-    try {
-      const res = await fetch(OLLAMA_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: model || "llama3.2", prompt, stream: false }),
-      });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
-      const raw  = (data.response || "").trim();
-      const match = raw.match(/\{[\s\S]*\}/);
-      return JSON.parse(match ? match[0] : raw);
-    } catch (err) {
-      console.warn("[ScrollSense] Ollama fetch failed:", err.message);
-      return null;
-    }
-  }
-
-  // ─── Loading overlay (while Ollama generates) ─────────────
-  function showLoadingOverlay(fileName) {
-    removeOverlay();
-    overlayEl = document.createElement("div");
-    overlayEl.id = "ss-quiz-overlay";
-    overlayEl.innerHTML =
-      '<div id="ss-quiz-card">' +
-        '<div class="ss-quiz-header">' +
-          '<span class="ss-logo">ScrollSense</span>' +
-          '<span class="ss-quiz-badge">📚 Quiz</span>' +
-        "</div>" +
-        '<div class="ss-quiz-source">📂 ' + escHtml(truncate(fileName || "Study file", 44)) + "</div>" +
-        '<div class="ss-loading-wrap">' +
-          '<div class="ss-spinner"></div>' +
-          '<p class="ss-loading-text">Generating question…</p>' +
-        "</div>" +
-      "</div>";
-    blurFeed(true);
-    document.body.appendChild(overlayEl);
-    requestAnimationFrame(() => overlayEl.classList.add("ss-visible"));
-  }
-
-  // ─── No-files prompt ──────────────────────────────────────
+  // ─── No-file / empty-bank prompt ─────────────────────────
   function showNoFileOverlay(tabs) {
     removeOverlay();
     overlayEl = document.createElement("div");
@@ -236,10 +171,12 @@
           '<span class="ss-logo">ScrollSense</span>' +
           '<span class="ss-quiz-badge">📚 Quiz</span>' +
         "</div>" +
-        '<p class="ss-quiz-question" style="text-align:center;color:#6366f1;margin-bottom:10px">No study files uploaded yet.</p>' +
+        '<p class="ss-quiz-question" style="text-align:center;color:#6366f1;margin-bottom:10px">' +
+          "No questions generated yet." +
+        "</p>" +
         '<p style="font-size:13px;color:#6b7280;text-align:center;margin-bottom:16px;line-height:1.6">' +
-          "Open <strong>ScrollSense → Quiz Me</strong> to upload notes.<br>" +
-          "You'll earn +2 min for every correct answer." +
+          "Open <strong>ScrollSense → Quiz Me</strong>, upload a file,<br>" +
+          "and click <strong>Generate Questions</strong>." +
         "</p>" +
         tabsHTML +
         '<button id="ss-nofile-continue">Keep scrolling</button>' +
@@ -250,15 +187,17 @@
     requestAnimationFrame(() => overlayEl.classList.add("ss-visible"));
     wireTabButtons(overlayEl.querySelector("#ss-nofile-tabs"));
     overlayEl.querySelector("#ss-nofile-continue")
-      ?.addEventListener("click", () => { sendMsg({ type: "LOG_OUTCOME", outcome: "override" }); closeOverlay(); });
+      ?.addEventListener("click", () => {
+        sendMsg({ type: "LOG_OUTCOME", outcome: "override" });
+        closeOverlay();
+      });
   }
 
-  // ─── Quiz Overlay ─────────────────────────────────────────
-  function showQuizOverlay(quiz, tabs, fileName) {
-    removeOverlay(); // replaces the loading overlay
-
+  // ─── Quiz Overlay — instant, from local bank ──────────────
+  function showQuizOverlay(question, tabs) {
+    removeOverlay();
     let choicesBtns = "";
-    (quiz.options || []).forEach((opt, i) => {
+    (question.options || []).forEach((opt, i) => {
       choicesBtns += '<button class="ss-choice-btn" data-val="' + i + '">' + escHtml(opt) + "</button>";
     });
 
@@ -270,9 +209,9 @@
           '<span class="ss-logo">ScrollSense</span>' +
           '<span class="ss-quiz-badge">📚 Quiz</span>' +
         "</div>" +
-        '<div class="ss-quiz-source">📂 ' + escHtml(truncate(fileName || "Study file", 44)) + "</div>" +
-        '<div class="ss-earn-note">✨ Answer correctly to earn +2 min</div>' +
-        '<p class="ss-quiz-question">' + escHtml(quiz.question) + "</p>" +
+        '<div class="ss-quiz-source">📂 ' + escHtml(truncate(question.fileName || "Study file", 44)) + "</div>" +
+        '<div class="ss-earn-note">✨ Correct = +2 min added to your budget</div>' +
+        '<p class="ss-quiz-question">' + escHtml(question.question) + "</p>" +
         '<div class="ss-choice-col">' + choicesBtns + "</div>" +
         '<div id="ss-quiz-feedback" class="ss-quiz-feedback" style="display:none"></div>' +
         '<div id="ss-quiz-after" style="display:none">' +
@@ -292,10 +231,10 @@
         if (answered.done) return;
         answered.done = true;
 
-        const correct = parseInt(btn.dataset.val) === quiz.correctIndex;
+        const correct = parseInt(btn.dataset.val) === question.correctIndex;
         overlayEl.querySelectorAll(".ss-choice-btn").forEach((b, i) => {
           b.disabled = true;
-          b.classList.add(i === quiz.correctIndex ? "ss-correct" : "ss-wrong-opt");
+          b.classList.add(i === question.correctIndex ? "ss-correct" : "ss-wrong-opt");
         });
         if (!correct) btn.classList.add("ss-wrong");
 
@@ -305,11 +244,12 @@
           fb.className = "ss-quiz-feedback " + (correct ? "ss-fb-correct" : "ss-fb-wrong");
           fb.textContent = correct
             ? "✅ Correct! +2 min earned 🎉"
-            : "❌ The answer was: " + escHtml(quiz.options?.[quiz.correctIndex] || "—");
+            : "❌ The answer was: " + escHtml(question.options?.[question.correctIndex] || "—");
         }
 
         const logRes = await sendMsg({
-          type: "LOG_OUTCOME", outcome: correct ? "quiz_correct" : "quiz_wrong", source: "file"
+          type: "LOG_OUTCOME",
+          outcome: correct ? "quiz_correct" : "quiz_wrong",
         });
         if (correct && logRes?.newBudget) {
           budgetSec = logRes.newBudget;
@@ -325,12 +265,15 @@
           wireTabButtons(tabList);
         }
         overlayEl.querySelector("#ss-quiz-continue")
-          ?.addEventListener("click", () => { sendMsg({ type: "LOG_OUTCOME", outcome: "override", source: "file" }); closeOverlay(); });
+          ?.addEventListener("click", () => {
+            sendMsg({ type: "LOG_OUTCOME", outcome: "override" });
+            closeOverlay();
+          });
       });
     });
   }
 
-  // ─── Redirect Card — bottom-right, no blur ────────────────
+  // ─── Redirect Card — bottom-right corner, no blur ─────────
   function showRedirectOverlay(tabs) {
     removeOverlay();
     overlayEl = document.createElement("div");
@@ -356,7 +299,10 @@
     requestAnimationFrame(() => overlayEl.classList.add("ss-visible"));
     wireTabButtons(overlayEl.querySelector("#ss-redirect-tabs"));
     overlayEl.querySelector("#ss-keep-scrolling")
-      ?.addEventListener("click", () => { sendMsg({ type: "LOG_OUTCOME", outcome: "override" }); closeOverlay(); });
+      ?.addEventListener("click", () => {
+        sendMsg({ type: "LOG_OUTCOME", outcome: "override" });
+        closeOverlay();
+      });
   }
 
   // ─── Hard Freeze ──────────────────────────────────────────
@@ -366,10 +312,10 @@
     overlayActive = true;
     blurFeed(true);
 
-    const tabsRes  = await sendMsg({ type: "GET_INTERVENTION" });
-    const allTabs  = tabsRes?.tabs || [];
+    const tabsRes   = await sendMsg({ type: "GET_INTERVENTION" });
+    const allTabs   = tabsRes?.tabs || [];
     const freezeRes = await sendMsg({ type: "GET_FREEZE_MSG", tabTitle: allTabs[0]?.title || "" });
-    const message  = (freezeRes && freezeRes.message) || "Daily budget reached — time to head back.";
+    const message   = (freezeRes && freezeRes.message) || "Daily budget reached — time to head back.";
 
     removeOverlay();
     overlayEl = document.createElement("div");
@@ -392,7 +338,6 @@
     document.body.appendChild(overlayEl);
     requestAnimationFrame(() => overlayEl.classList.add("ss-visible"));
 
-    // Tab buttons: switch to existing tab (not open new one)
     overlayEl.querySelectorAll(".ss-tab-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         switchToTab(parseInt(btn.dataset.tabId), btn.dataset.url);
@@ -412,7 +357,7 @@
     });
   }
 
-  // ─── Weekly Summary ───────────────────────────────────────
+  // ─── Weekly summary ───────────────────────────────────────
   async function showWeeklySummary() {
     const res = await sendMsg({ type: "WEEKLY_SUMMARY_REQUEST" });
     if (!res?.insight) return;
@@ -452,19 +397,15 @@
     feed.style.transition    = "filter 0.3s";
   }
 
-  // Switch to existing tab by id; fallback to opening URL if tab no longer exists
   function switchToTab(tabId, url) {
-    if (tabId && !isNaN(tabId)) {
-      sendMsg({ type: "SWITCH_TAB", tabId });
-    } else if (url) {
-      window.open(url, "_blank");
-    }
+    if (tabId && !isNaN(tabId)) sendMsg({ type: "SWITCH_TAB", tabId });
+    else if (url) window.open(url, "_blank");
   }
 
   function buildTabButtons(tabs) {
     if (!tabs || !tabs.length) return "";
     return tabs.map((t) =>
-      '<button class="ss-tab-btn" data-tab-id="' + (t.id || "") + '" data-url="' + escAttr(t.url) + '" title="' + escAttr(t.title) + '">' +
+      '<button class="ss-tab-btn" data-tab-id="' + (t.id || "") + '" data-url="' + escAttr(t.url) + '">' +
         '<span class="ss-tab-icon">📄</span>' +
         '<span class="ss-tab-title">' + escHtml(truncate(t.title, 32)) + "</span>" +
         '<span class="ss-tab-arrow">→</span>' +
