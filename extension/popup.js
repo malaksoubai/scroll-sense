@@ -1,5 +1,5 @@
 // ============================================================
-// ScrollSense — popup.js  v2.0
+// ScrollSense — popup.js  v3.0
 // ============================================================
 
 const CIRCUMFERENCE = 264;
@@ -8,24 +8,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadStats();
   await checkOllama();
   await checkQuizFile();
-  bindSave();
-  bindQuizMe();
+  bindButtons();
 });
 
-// ─── Stats ───────────────────────────────────────────────────
+// ─── Load stats ───────────────────────────────────────────────
 function loadStats() {
   return new Promise(resolve => {
     chrome.runtime.sendMessage({ type: "GET_POPUP_STATS" }, (res) => {
       if (!res) { resolve(); return; }
-      const { settings, today, budgetSec, streak } = res;
+      const { settings, today, budgetSec, streak, bankSize } = res;
 
-      // Ring
       const usedSec   = today?.usedSeconds   || 0;
       const usedMin   = Math.floor(usedSec / 60);
       const remaining = Math.max(0, budgetSec - usedSec);
       const pct       = budgetSec > 0 ? Math.min(1, usedSec / budgetSec) : 0;
       const over      = usedSec > budgetSec;
+      const earnedMin = Math.floor((today?.earnedSeconds || 0) / 60);
 
+      // Ring
       const ring = document.getElementById("ring-fg");
       if (ring) {
         ring.style.strokeDashoffset = CIRCUMFERENCE - pct * CIRCUMFERENCE;
@@ -34,34 +34,32 @@ function loadStats() {
       setText("ring-time",  formatTime(over ? usedSec - budgetSec : remaining));
       setText("ring-label", over ? "over budget" : "left today");
 
-      // Earned time badge
-      const earnedSec = today?.earnedSeconds || 0;
-      const earnedMin = Math.floor(earnedSec / 60);
-      const earnedEl  = document.getElementById("earned-badge");
-      if (earnedMin > 0 && earnedEl) {
-        earnedEl.classList.add("visible");
-        setText("earned-text", `+${earnedMin} min earned today`);
+      // Badges
+      if (streak > 0) {
+        const el = document.getElementById("badge-streak");
+        if (el) { el.textContent = "🔥 " + streak + " day streak"; el.classList.add("visible"); }
+      }
+      if (earnedMin > 0) {
+        const el = document.getElementById("badge-earned");
+        if (el) { el.textContent = "✨ +" + earnedMin + " min earned"; el.classList.add("visible"); }
       }
 
-      // Streak
-      const streakRow = document.getElementById("streak-row");
-      if (streak > 0 && streakRow) {
-        streakRow.classList.add("visible");
-        setText("streak-count", streak);
-      }
+      // Stat tiles
+      setText("stat-used",          usedMin);
+      setText("stat-overrides",     today?.overrideCount   || 0);
+      setText("stat-interventions", today?.interventions   || 0);
+      setText("stat-correct",       today?.correctAnswers  || 0);
+      setText("stat-wrong",         today?.wrongAnswers    || 0);
+      setText("stat-bank",          bankSize || 0);
 
-      // Stats
-      setText("stat-used",      usedMin);
-      setText("stat-overrides", today?.overrideCount  || 0);
-      setText("stat-correct",   today?.correctAnswers || 0);
-      setText("stat-wrong",     today?.wrongAnswers   || 0);
-
-      // Quiz accuracy bar
+      // Quiz accuracy
       const correct = today?.correctAnswers || 0;
       const wrong   = today?.wrongAnswers   || 0;
       const total   = correct + wrong;
+      const acc     = total > 0 ? Math.round((correct / total) * 100) : null;
       const fill    = document.getElementById("score-fill");
-      if (fill) fill.style.width = (total > 0 ? Math.round((correct / total) * 100) : 0) + "%";
+      if (fill) fill.style.width = (acc || 0) + "%";
+      setText("score-pct", acc !== null ? acc + "%" : "—");
 
       // Settings
       setValue("set-budget",  settings.dailyBudgetMinutes   ?? 20);
@@ -79,35 +77,22 @@ async function checkOllama() {
   const dot   = document.getElementById("ollama-dot");
   const label = document.getElementById("model-name");
   if (!dot) return;
-
-  // Use AbortController for broad Chrome version compatibility
   const controller = new AbortController();
   const timeout    = setTimeout(() => controller.abort(), 2000);
-
   try {
-    const res = await fetch("http://localhost:11434/api/tags", {
-      signal: controller.signal
-    });
+    const res = await fetch("http://localhost:11434/api/tags", { signal: controller.signal });
     clearTimeout(timeout);
-    if (res.ok) {
-      dot.classList.remove("offline");
-      dot.classList.add("online");
-      if (label) label.title = "Ollama is running";
-    } else {
-      throw new Error("not ok");
-    }
+    dot.classList.toggle("online",  res.ok);
+    dot.classList.toggle("offline", !res.ok);
+    if (!res.ok && label) label.textContent = "llama3.2 (offline)";
   } catch {
     clearTimeout(timeout);
-    dot.classList.remove("online");
     dot.classList.add("offline");
-    if (label) {
-      label.textContent = "llama3.2 (offline)";
-      label.title = "Ollama is not running — start it with: ollama serve";
-    }
+    if (label) label.textContent = "llama3.2 (offline)";
   }
 }
 
-// ─── Quiz Me file dot ─────────────────────────────────────────
+// ─── Quiz Me dot ──────────────────────────────────────────────
 function checkQuizFile() {
   return new Promise(resolve => {
     chrome.runtime.sendMessage({ type: "GET_QUIZ_FILES" }, (res) => {
@@ -118,28 +103,38 @@ function checkQuizFile() {
   });
 }
 
-// ─── Quiz Me button → opens options page ─────────────────────
-function bindQuizMe() {
+// ─── Bind all buttons ─────────────────────────────────────────
+function bindButtons() {
+  // Quiz Me → options page
   document.getElementById("quiz-me-btn")?.addEventListener("click", () => {
     chrome.runtime.openOptionsPage();
   });
-}
 
-// ─── Save settings ────────────────────────────────────────────
-function bindSave() {
-  const btn = document.getElementById("save-btn");
-  if (!btn) return;
-  btn.addEventListener("click", () => {
+  // Stats → options page with stats tab
+  document.getElementById("stats-btn")?.addEventListener("click", () => {
+    chrome.tabs.create({ url: chrome.runtime.getURL("options.html") + "?tab=stats" });
+  });
+
+  // Save settings
+  document.getElementById("save-btn")?.addEventListener("click", () => {
     const settings = {
       dailyBudgetMinutes:   Math.max(1, parseInt(getValue("set-budget"))  || 20),
       postsPerIntervention: Math.max(3, parseInt(getValue("set-posts"))   || 10),
       hardFreezeEnabled:    getChecked("set-freeze"),
       model:                document.getElementById("model-name")?.textContent?.trim() || "llama3.2",
     };
+    const btn = document.getElementById("save-btn");
     chrome.runtime.sendMessage({ type: "SAVE_SETTINGS", settings }, () => {
-      btn.textContent = "Saved ✓";
-      btn.classList.add("saved");
-      setTimeout(() => { btn.textContent = "Save Settings"; btn.classList.remove("saved"); }, 1800);
+      if (btn) { btn.textContent = "Saved ✓"; btn.classList.add("saved"); }
+      setTimeout(() => { if (btn) { btn.textContent = "Save Settings"; btn.classList.remove("saved"); } }, 1800);
+    });
+  });
+
+  // Reset today
+  document.getElementById("reset-today-btn")?.addEventListener("click", () => {
+    if (!confirm("Reset today's timer, quiz scores and overrides? Your streak and history stay intact.")) return;
+    chrome.runtime.sendMessage({ type: "RESET_TODAY" }, () => {
+      loadStats(); // refresh display
     });
   });
 }
@@ -147,7 +142,7 @@ function bindSave() {
 // ─── Helpers ─────────────────────────────────────────────────
 function formatTime(sec) {
   const s = Math.max(0, Math.floor(sec));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 }
 function setText(id, v)    { const e = document.getElementById(id); if (e) e.textContent = v; }
 function setValue(id, v)   { const e = document.getElementById(id); if (e) e.value = v; }

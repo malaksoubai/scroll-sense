@@ -317,13 +317,97 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
       // ── Popup stats
       case "GET_POPUP_STATS": {
-        const [settings, today, streak]  = await Promise.all([
+        const [settings, today, streak] = await Promise.all([
           getSettings(), getTodayData(), calculateStreak()
         ]);
-        const stored   = await chrome.storage.local.get("questionBank");
-        const bankSize = (stored.questionBank || []).length;
+        const stored    = await chrome.storage.local.get("questionBank");
+        const bankSize  = (stored.questionBank || []).length;
         const budgetSec = (settings.dailyBudgetMinutes * 60) + (today.earnedSeconds || 0);
         sendResponse({ settings, today, budgetSec, streak, bankSize });
+        break;
+      }
+
+      // ── Full historical stats for the Stats page
+      case "GET_HISTORY": {
+        const settings  = await getSettings();
+        const budgetSec = settings.dailyBudgetMinutes * 60;
+        // Collect last 30 days
+        const days = [];
+        for (let i = 29; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const key  = "day_" + d.toISOString().slice(0, 10);
+          const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          const r    = await chrome.storage.local.get(key);
+          const day  = r[key];
+          if (day && (day.usedSeconds > 0 || day.correctAnswers > 0)) {
+            days.push({
+              date:           key.slice(4),
+              label,
+              usedMin:        Math.round((day.usedSeconds || 0) / 60),
+              budgetMin:      Math.round((budgetSec + (day.earnedSeconds || 0)) / 60),
+              earnedMin:      Math.round((day.earnedSeconds || 0) / 60),
+              overrides:      day.overrideCount  || 0,
+              correct:        day.correctAnswers || 0,
+              wrong:          day.wrongAnswers   || 0,
+              interventions:  day.interventions  || 0,
+              outcomeLog:     day.outcomeLog     || [],
+            });
+          }
+        }
+        // All-time totals
+        const totals = days.reduce((acc, d) => {
+          acc.usedMin      += d.usedMin;
+          acc.earnedMin    += d.earnedMin;
+          acc.overrides    += d.overrides;
+          acc.correct      += d.correct;
+          acc.wrong        += d.wrong;
+          acc.interventions+= d.interventions;
+          return acc;
+        }, { usedMin: 0, earnedMin: 0, overrides: 0, correct: 0, wrong: 0, interventions: 0 });
+
+        // Peak scroll hour from outcomeLog
+        const hourCounts = new Array(24).fill(0);
+        days.forEach(d => d.outcomeLog.forEach(e => {
+          if (e.ts) hourCounts[new Date(e.ts).getHours()]++;
+        }));
+        const peakHour = hourCounts.indexOf(Math.max(...hourCounts));
+
+        sendResponse({ days, totals, peakHour, budgetMin: settings.dailyBudgetMinutes });
+        break;
+      }
+
+      // ── Reset today only
+      case "RESET_TODAY": {
+        const key = todayKey();
+        await chrome.storage.local.set({
+          [key]: {
+            usedSeconds: 0, earnedSeconds: 0, overrideCount: 0,
+            correctAnswers: 0, wrongAnswers: 0, interventions: 0, outcomeLog: [],
+          }
+        });
+        sendResponse({ ok: true });
+        break;
+      }
+
+      // ── Full reset — wipe everything except question bank
+      case "RESET_ALL": {
+        // Collect all day_ keys
+        const allKeys = await new Promise(res => chrome.storage.local.get(null, res));
+        const dayKeys = Object.keys(allKeys).filter(k => k.startsWith("day_"));
+        await chrome.storage.local.remove(dayKeys);
+        await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
+        await ensureTodayData();
+        sendResponse({ ok: true });
+        break;
+      }
+
+      // ── Nuclear reset — wipe absolutely everything
+      case "RESET_NUCLEAR": {
+        await chrome.storage.local.clear();
+        await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
+        await ensureTodayData();
+        sendResponse({ ok: true });
         break;
       }
 
