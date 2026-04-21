@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>ScrollSense — Quiz Me</title>
+  <title>ScrollSense</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -14,12 +14,29 @@
       justify-content: center;
       padding: 40px 20px 80px;
     }
-    .container { width: 100%; max-width: 640px; }
+    .container { width: 100%; max-width: 680px; }
 
-    .header  { margin-bottom: 32px; }
+    .header  { margin-bottom: 28px; }
     .logo    { font-size: 22px; font-weight: 800; color: #818cf8; margin-bottom: 4px; }
     .tagline { font-size: 13px; color: #475569; }
 
+    /* ── Top nav tabs */
+    .nav-tabs {
+      display: flex; gap: 4px;
+      background: #1e293b; border-radius: 12px; padding: 4px;
+      margin-bottom: 24px; border: 1px solid #334155;
+    }
+    .nav-btn {
+      flex: 1; padding: 10px 0; border: none; border-radius: 9px;
+      font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+      color: #64748b; background: transparent; transition: background 0.15s, color 0.15s;
+    }
+    .nav-btn.active { background: #6366f1; color: #fff; }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── Cards */
     .card {
       background: #1e293b; border-radius: 16px;
       padding: 24px; margin-bottom: 16px; border: 1px solid #334155;
@@ -27,19 +44,19 @@
     .card-title { font-size: 15px; font-weight: 700; color: #f1f5f9; margin-bottom: 4px; }
     .card-sub   { font-size: 12px; color: #64748b; margin-bottom: 18px; line-height: 1.5; }
 
-    /* Tabs */
-    .tabs {
+    /* ── Upload sub-tabs */
+    .sub-tabs {
       display: flex; gap: 4px;
       background: #0f172a; border-radius: 10px; padding: 4px; margin-bottom: 18px;
     }
-    .tab-btn {
+    .sub-btn {
       flex: 1; padding: 8px 0; border: none; border-radius: 7px;
       font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
       color: #64748b; background: transparent; transition: background 0.15s, color 0.15s;
     }
-    .tab-btn.active { background: #6366f1; color: #fff; }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
+    .sub-btn.active { background: #6366f1; color: #fff; }
+    .sub-panel { display: none; }
+    .sub-panel.active { display: block; }
 
     /* Drop zone */
     .drop-zone {
@@ -47,18 +64,14 @@
       padding: 32px 20px; text-align: center; cursor: pointer;
       position: relative; transition: border-color 0.2s, background 0.2s;
     }
-    .drop-zone:hover, .drop-zone.drag-over {
-      border-color: #6366f1; background: rgba(99,102,241,0.07);
-    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: #6366f1; background: rgba(99,102,241,0.07); }
     .drop-zone input[type="file"] {
       position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
     }
     .drop-icon { font-size: 32px; margin-bottom: 8px; }
     .drop-main { font-size: 14px; font-weight: 600; color: #cbd5e1; margin-bottom: 4px; }
     .drop-sub  { font-size: 12px; color: #475569; }
-    .drop-types {
-      display: flex; justify-content: center; gap: 6px; margin-top: 12px; flex-wrap: wrap;
-    }
+    .drop-types { display: flex; justify-content: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
     .type-chip {
       font-size: 11px; font-weight: 600; padding: 3px 9px;
       border-radius: 999px; background: #0f172a; color: #818cf8; border: 1px solid #334155;
@@ -66,16 +79,14 @@
 
     /* Paste */
     .paste-name {
-      width: 100%; background: #0f172a; border: 1px solid #334155;
-      border-radius: 8px; color: #f1f5f9; font-size: 13px; padding: 10px 12px;
-      font-family: inherit; margin-bottom: 10px;
+      width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+      color: #f1f5f9; font-size: 13px; padding: 10px 12px; font-family: inherit; margin-bottom: 10px;
     }
     .paste-name:focus { outline: 2px solid #6366f1; border-color: transparent; }
     .paste-name::placeholder { color: #475569; }
     textarea {
-      width: 100%; height: 150px; background: #0f172a; border: 1px solid #334155;
-      border-radius: 8px; color: #f1f5f9; font-size: 13px; font-family: inherit;
-      padding: 10px 12px; resize: vertical; line-height: 1.6;
+      width: 100%; height: 150px; background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+      color: #f1f5f9; font-size: 13px; font-family: inherit; padding: 10px 12px; resize: vertical; line-height: 1.6;
     }
     textarea:focus { outline: 2px solid #6366f1; border-color: transparent; }
     textarea::placeholder { color: #475569; }
@@ -87,90 +98,93 @@
       font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
       margin-top: 12px; transition: opacity 0.15s, transform 0.1s;
     }
-    .btn:hover:not(:disabled)   { opacity: 0.88; }
-    .btn:active:not(:disabled)  { transform: scale(0.98); }
+    .btn:hover:not(:disabled)  { opacity: 0.88; }
+    .btn:active:not(:disabled) { transform: scale(0.98); }
     .btn:disabled { opacity: 0.35; cursor: not-allowed; }
-    .btn-primary  { background: #6366f1; color: #fff; }
-    .btn-danger   { background: #334155; color: #f87171; }
+    .btn-primary { background: #6366f1; color: #fff; }
+    .btn-danger  { background: #fee2e2; color: #dc2626; }
+    .btn-ghost   { background: #1e293b; border: 1px solid #334155; color: #94a3b8; }
 
     /* Status */
-    .status {
-      margin-top: 12px; padding: 10px 14px; border-radius: 8px;
-      font-size: 13px; display: none; line-height: 1.5;
-    }
+    .status { margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; display: none; line-height: 1.5; }
     .status.success { background: #f0fdf4; color: #15803d; display: block; }
     .status.error   { background: #fef2f2; color: #dc2626; display: block; }
     .status.info    { background: #eff6ff; color: #1d4ed8; display: block; }
 
-    /* Generation progress */
-    .gen-progress {
-      background: #0f172a; border: 1px solid #334155;
-      border-radius: 10px; padding: 16px; margin-top: 14px; display: none;
-    }
+    /* Progress */
+    .gen-progress { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin-top: 14px; display: none; }
     .gen-progress.visible { display: block; }
-    .gen-header {
-      display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
-    }
+    .gen-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .gen-label  { font-size: 13px; font-weight: 600; color: #f1f5f9; }
     .gen-count  { font-size: 12px; color: #6366f1; font-weight: 700; }
     .gen-bar    { height: 6px; background: #1e293b; border-radius: 999px; overflow: hidden; }
     .gen-fill   { height: 100%; background: #6366f1; border-radius: 999px; transition: width 0.4s ease; }
     .gen-status { font-size: 12px; color: #64748b; margin-top: 8px; }
 
-    /* Question bank status */
-    .bank-status {
-      display: flex; align-items: center; gap: 10px;
-      background: #0f172a; border: 1px solid #334155;
-      border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
-    }
-    .bank-icon  { font-size: 22px; flex-shrink: 0; }
-    .bank-text  { flex: 1; }
-    .bank-title { font-size: 13px; font-weight: 600; color: #f1f5f9; }
-    .bank-sub   { font-size: 11px; color: #64748b; margin-top: 2px; }
-    .bank-count {
-      font-size: 20px; font-weight: 800; color: #6366f1;
-      flex-shrink: 0; min-width: 40px; text-align: right;
-    }
+    /* Bank status */
+    .bank-status { display: flex; align-items: center; gap: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; }
+    .bank-icon   { font-size: 22px; flex-shrink: 0; }
+    .bank-text   { flex: 1; }
+    .bank-title  { font-size: 13px; font-weight: 600; color: #f1f5f9; }
+    .bank-sub    { font-size: 11px; color: #64748b; margin-top: 2px; }
+    .bank-count  { font-size: 20px; font-weight: 800; color: #6366f1; flex-shrink: 0; min-width: 40px; text-align: right; }
 
     /* File library */
-    .lib-header {
-      display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;
-    }
-    .lib-title { font-size: 14px; font-weight: 700; color: #f1f5f9; }
-    .lib-clear {
-      background: none; border: none; color: #f87171;
-      font-size: 12px; cursor: pointer; font-family: inherit;
-    }
+    .lib-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .lib-title  { font-size: 14px; font-weight: 700; color: #f1f5f9; }
+    .lib-clear  { background: none; border: none; color: #f87171; font-size: 12px; cursor: pointer; font-family: inherit; }
     .lib-clear:hover { text-decoration: underline; }
-    .file-list { display: flex; flex-direction: column; gap: 6px; }
-    .file-item {
-      display: flex; align-items: center; gap: 10px;
-      background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 10px 14px;
-    }
-    .file-icon { font-size: 18px; flex-shrink: 0; }
-    .file-info { flex: 1; min-width: 0; }
-    .file-name { font-size: 13px; font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .file-meta { font-size: 11px; color: #64748b; margin-top: 2px; }
-    .file-del  {
-      background: none; border: none; color: #475569; font-size: 16px;
-      cursor: pointer; padding: 2px 4px; border-radius: 4px;
-      transition: color 0.15s, background 0.15s;
-    }
-    .file-del:hover { color: #f87171; background: #1e293b; }
-    .empty-lib { font-size: 13px; color: #475569; text-align: center; padding: 20px 0; }
+    .file-list  { display: flex; flex-direction: column; gap: 6px; }
+    .file-item  { display: flex; align-items: center; gap: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 10px 14px; }
+    .file-icon  { font-size: 18px; flex-shrink: 0; }
+    .file-info  { flex: 1; min-width: 0; }
+    .file-name  { font-size: 13px; font-weight: 600; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-meta  { font-size: 11px; color: #64748b; margin-top: 2px; }
+    .file-del   { background: none; border: none; color: #475569; font-size: 16px; cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: color 0.15s; }
+    .file-del:hover { color: #f87171; }
+    .empty-lib  { font-size: 13px; color: #475569; text-align: center; padding: 20px 0; }
 
     /* PDF tip */
-    .tip {
-      background: #0f172a; border: 1px solid #334155;
-      border-radius: 10px; padding: 14px 16px; margin-top: 14px;
-    }
+    .tip { background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px; margin-top: 14px; }
     .tip-title { font-size: 12px; font-weight: 700; color: #818cf8; margin-bottom: 8px; }
     .tip p     { font-size: 12px; color: #64748b; line-height: 1.6; margin-bottom: 6px; }
-    .tip code  {
-      display: block; background: #1e293b; border-radius: 6px;
-      padding: 7px 12px; font-family: "SF Mono","Fira Code",monospace;
-      font-size: 11px; color: #a5b4fc; margin: 4px 0; word-break: break-all;
-    }
+    .tip code  { display: block; background: #1e293b; border-radius: 6px; padding: 7px 12px; font-family: "SF Mono","Fira Code",monospace; font-size: 11px; color: #a5b4fc; margin: 4px 0; word-break: break-all; }
+
+    /* ══ STATS PAGE ══════════════════════════════════════════ */
+
+    /* All-time summary row */
+    .summary-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 20px; }
+    .summary-card { background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 16px 12px; text-align: center; }
+    .summary-val  { font-size: 28px; font-weight: 800; color: #818cf8; }
+    .summary-lbl  { font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.3; }
+
+    /* 7-day bar chart */
+    .chart-wrap  { margin-bottom: 20px; }
+    .chart-title { font-size: 13px; font-weight: 700; color: #f1f5f9; margin-bottom: 14px; }
+    .chart       { display: flex; align-items: flex-end; gap: 6px; height: 100px; }
+    .bar-col     { display: flex; flex-direction: column; align-items: center; flex: 1; gap: 4px; }
+    .bar-track   { width: 100%; flex: 1; background: #0f172a; border-radius: 4px 4px 0 0; position: relative; display: flex; align-items: flex-end; }
+    .bar-fill    { width: 100%; border-radius: 4px 4px 0 0; transition: height 0.5s ease; min-height: 2px; }
+    .bar-fill.under { background: #4ade80; }
+    .bar-fill.over  { background: #f87171; }
+    .bar-label   { font-size: 9px; color: #64748b; text-align: center; white-space: nowrap; }
+    .bar-val     { font-size: 9px; color: #94a3b8; }
+
+    /* Peak hour */
+    .insight-row { display: flex; align-items: center; gap: 10px; background: #0f172a; border: 1px solid #334155; border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; }
+    .insight-icon{ font-size: 20px; flex-shrink: 0; }
+    .insight-text{ font-size: 13px; color: #cbd5e1; line-height: 1.4; }
+    .insight-text strong { color: #818cf8; }
+
+    /* Day-by-day history table */
+    .history-title { font-size: 13px; font-weight: 700; color: #f1f5f9; margin-bottom: 12px; }
+    .history-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .history-table th { color: #475569; font-weight: 600; text-align: left; padding: 0 8px 8px 0; border-bottom: 1px solid #334155; }
+    .history-table td { padding: 8px 8px 8px 0; border-bottom: 1px solid #1e293b; color: #cbd5e1; vertical-align: middle; }
+    .history-table tr:last-child td { border-bottom: none; }
+    .dot-under { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4ade80; margin-right: 4px; }
+    .dot-over  { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f87171; margin-right: 4px; }
+    .no-data   { font-size: 13px; color: #475569; text-align: center; padding: 32px 0; }
 
     /* Earn badge */
     .earn-badge {
@@ -179,11 +193,35 @@
       color: #16a34a; font-size: 13px; font-weight: 600;
       padding: 5px 14px; border-radius: 999px; margin-top: 10px;
     }
-    .info-row {
-      display: flex; align-items: flex-start; gap: 8px;
-      font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px;
-    }
+    .info-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; color: #94a3b8; line-height: 1.5; margin-bottom: 8px; }
     .info-row span:first-child { flex-shrink: 0; font-size: 14px; }
+
+    /* ══ RESET PAGE ══════════════════════════════════════════ */
+    .reset-option { background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 18px; margin-bottom: 12px; }
+    .reset-title  { font-size: 14px; font-weight: 700; color: #f1f5f9; margin-bottom: 4px; }
+    .reset-desc   { font-size: 12px; color: #64748b; line-height: 1.5; margin-bottom: 14px; }
+    .reset-clears { font-size: 11px; color: #475569; margin-bottom: 14px; }
+    .reset-clears span { display: inline-block; background: #1e293b; border-radius: 4px; padding: 2px 7px; margin: 2px; }
+    .confirm-row  { display: flex; gap: 8px; margin-top: 10px; }
+    .confirm-input {
+      flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+      color: #f1f5f9; font-size: 13px; padding: 8px 12px; font-family: inherit;
+    }
+    .confirm-input:focus { outline: 2px solid #dc2626; border-color: transparent; }
+    .confirm-input::placeholder { color: #475569; }
+    .reset-btn {
+      padding: 8px 16px; border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+      white-space: nowrap; transition: opacity 0.15s;
+    }
+    .reset-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    .reset-btn:hover:not(:disabled) { opacity: 0.85; }
+    .reset-btn-today   { background: #fef3c7; color: #92400e; }
+    .reset-btn-all     { background: #fee2e2; color: #dc2626; }
+    .reset-btn-nuclear { background: #1e293b; color: #f87171; border: 1px solid #f87171; }
+    .reset-status { font-size: 13px; margin-top: 10px; display: none; }
+    .reset-status.ok  { color: #4ade80; display: block; }
+    .reset-status.err { color: #f87171; display: block; }
   </style>
 </head>
 <body>
@@ -191,106 +229,215 @@
 
   <div class="header">
     <div class="logo">ScrollSense</div>
-    <div class="tagline">Quiz Me — Study while you scroll. Earn time for correct answers.</div>
+    <div class="tagline" id="page-tagline">Quiz Me — Study while you scroll</div>
   </div>
 
-  <!-- Question bank status -->
-  <div class="bank-status">
-    <div class="bank-icon">🗃️</div>
-    <div class="bank-text">
-      <div class="bank-title">Question Bank</div>
-      <div class="bank-sub" id="bank-sub">Upload a file below to generate questions</div>
-    </div>
-    <div class="bank-count" id="bank-count">0</div>
+  <!-- Top nav -->
+  <div class="nav-tabs">
+    <button class="nav-btn active" data-page="quiz">📚 Quiz Me</button>
+    <button class="nav-btn"        data-page="stats">📊 Stats</button>
+    <button class="nav-btn"        data-page="reset">🔄 Reset</button>
   </div>
 
-  <!-- Upload card -->
-  <div class="card">
-    <div class="card-title">Add Study Material</div>
-    <div class="card-sub">
-      Upload a file or paste text. ScrollSense will use Ollama to generate
-      20 quiz questions and store them locally. No network calls happen while you scroll.
+  <!-- ══════════════════ QUIZ ME PAGE ══════════════════════ -->
+  <div class="page active" id="page-quiz">
+
+    <div class="bank-status">
+      <div class="bank-icon">🗃️</div>
+      <div class="bank-text">
+        <div class="bank-title">Question Bank</div>
+        <div class="bank-sub" id="bank-sub">Upload a file below to generate questions</div>
+      </div>
+      <div class="bank-count" id="bank-count">0</div>
     </div>
 
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="file">📄 Upload File</button>
-      <button class="tab-btn"        data-tab="paste">✏️ Paste Text</button>
-    </div>
+    <div class="card">
+      <div class="card-title">Add Study Material</div>
+      <div class="card-sub">Upload a file or paste text. Ollama generates 20 questions and stores them locally. No calls happen while you scroll.</div>
 
-    <!-- File tab -->
-    <div class="tab-panel active" id="tab-file">
-      <div class="drop-zone" id="drop-zone">
-        <input type="file" id="file-input" accept=".txt,.md,.html,.csv" multiple />
-        <div class="drop-icon">📂</div>
-        <div class="drop-main">Click to choose files, or drag &amp; drop</div>
-        <div class="drop-sub">Text is extracted immediately — no conversion needed</div>
-        <div class="drop-types">
-          <span class="type-chip">.txt</span>
-          <span class="type-chip">.md</span>
-          <span class="type-chip">.html</span>
-          <span class="type-chip">.csv</span>
+      <div class="sub-tabs">
+        <button class="sub-btn active" data-sub="file">📄 Upload File</button>
+        <button class="sub-btn"        data-sub="paste">✏️ Paste Text</button>
+      </div>
+
+      <div class="sub-panel active" id="sub-file">
+        <div class="drop-zone" id="drop-zone">
+          <input type="file" id="file-input" accept=".txt,.md,.html,.csv" multiple />
+          <div class="drop-icon">📂</div>
+          <div class="drop-main">Click to choose files, or drag &amp; drop</div>
+          <div class="drop-sub">Reads immediately — no conversion needed</div>
+          <div class="drop-types">
+            <span class="type-chip">.txt</span>
+            <span class="type-chip">.md</span>
+            <span class="type-chip">.html</span>
+            <span class="type-chip">.csv</span>
+          </div>
+        </div>
+        <div class="tip">
+          <div class="tip-title">📕 Have a PDF or Word doc?</div>
+          <p>Convert to .txt first:</p>
+          <p><strong>PDF:</strong></p>
+          <code>python3 -m pdfminer.high_level yourfile.pdf &gt; yourfile.txt</code>
+          <p><strong>DOCX:</strong></p>
+          <code>python3 -c "import docx; print('\n'.join([p.text for p in docx.Document('yourfile.docx').paragraphs]))" &gt; yourfile.txt</code>
+          <p>Packages: <code>pip install pdfminer.six python-docx</code></p>
         </div>
       </div>
 
-      <div class="tip">
-        <div class="tip-title">📕 Have a PDF or Word doc?</div>
-        <p>Convert to .txt first with these Terminal commands, then upload:</p>
-        <p><strong>PDF:</strong></p>
-        <code>python3 -m pdfminer.high_level yourfile.pdf &gt; yourfile.txt</code>
-        <p><strong>DOCX:</strong></p>
-        <code>python3 -c "import docx; print('\n'.join([p.text for p in docx.Document('yourfile.docx').paragraphs]))" &gt; yourfile.txt</code>
-        <p>Need the packages? <code>pip install pdfminer.six python-docx</code></p>
+      <div class="sub-panel" id="sub-paste">
+        <input type="text" class="paste-name" id="paste-name" placeholder="Name (e.g. Biology Ch.3)" maxlength="80" />
+        <textarea id="paste-area" placeholder="Paste your notes, lecture transcript, article text…"></textarea>
+        <div class="char-count"><span id="char-count">0</span> characters</div>
+        <button class="btn btn-primary" id="add-paste-btn" disabled>Save &amp; Generate Questions</button>
+      </div>
+
+      <div class="gen-progress" id="gen-progress">
+        <div class="gen-header">
+          <div class="gen-label" id="gen-label">Generating questions…</div>
+          <div class="gen-count" id="gen-count">0 / 20</div>
+        </div>
+        <div class="gen-bar"><div class="gen-fill" id="gen-fill" style="width:0%"></div></div>
+        <div class="gen-status" id="gen-status">Ollama is reading your file. Keep this tab open.</div>
+      </div>
+
+      <div class="status" id="quiz-status"></div>
+    </div>
+
+    <div class="card">
+      <div class="lib-header">
+        <div class="lib-title">Uploaded Files</div>
+        <button class="lib-clear" id="clear-all-btn">Remove all</button>
+      </div>
+      <div class="file-list" id="file-list">
+        <div class="empty-lib" id="empty-lib">No files yet.</div>
       </div>
     </div>
 
-    <!-- Paste tab -->
-    <div class="tab-panel" id="tab-paste">
-      <input type="text" class="paste-name" id="paste-name"
-        placeholder="Name (e.g. Biology Ch.3, Lecture Notes)" maxlength="80" />
-      <textarea id="paste-area"
-        placeholder="Paste your notes, lecture transcript, article text…"></textarea>
-      <div class="char-count"><span id="char-count">0</span> characters</div>
-      <button class="btn btn-primary" id="add-paste-btn" disabled>
-        Save &amp; Generate Questions
-      </button>
-    </div>
-
-    <!-- Generation progress (shown while Ollama works) -->
-    <div class="gen-progress" id="gen-progress">
-      <div class="gen-header">
-        <div class="gen-label" id="gen-label">Generating questions…</div>
-        <div class="gen-count" id="gen-count">0 / 20</div>
+    <div class="card">
+      <div class="card-title">How it works</div>
+      <div style="margin-top:12px">
+        <div class="info-row"><span>📤</span><span>Upload a file. Ollama generates 20 questions from it and stores them locally.</span></div>
+        <div class="info-row"><span>📚</span><span>While scrolling, every other intervention shows a pre-stored question — instantly.</span></div>
+        <div class="info-row"><span>🔀</span><span>Alternating interventions show your open tabs as a redirect card.</span></div>
+        <div class="info-row"><span>🔒</span><span>Everything stays on your machine. No data leaves your computer.</span></div>
       </div>
-      <div class="gen-bar"><div class="gen-fill" id="gen-fill" style="width:0%"></div></div>
-      <div class="gen-status" id="gen-status">
-        Ollama is reading your file and writing questions. This takes ~1 min.
-      </div>
-    </div>
-
-    <div class="status" id="status"></div>
-  </div>
-
-  <!-- Library -->
-  <div class="card">
-    <div class="lib-header">
-      <div class="lib-title">Uploaded Files</div>
-      <button class="lib-clear" id="clear-all-btn">Remove all</button>
-    </div>
-    <div class="file-list" id="file-list">
-      <div class="empty-lib" id="empty-lib">No files yet.</div>
+      <div class="earn-badge">✨ Correct answer = +2 min added to your budget</div>
     </div>
   </div>
 
-  <!-- How it works -->
-  <div class="card">
-    <div class="card-title">How it works</div>
-    <div style="margin-top:12px">
-      <div class="info-row"><span>📤</span><span>You upload a file here. Ollama generates 20 questions from it and stores them locally.</span></div>
-      <div class="info-row"><span>📚</span><span>While you scroll Instagram, every other intervention shows one of those pre-stored questions — instantly, no network call.</span></div>
-      <div class="info-row"><span>🔀</span><span>Alternating interventions show your open tabs as a redirect card.</span></div>
-      <div class="info-row"><span>🔒</span><span>Everything stays local. Ollama runs on your machine.</span></div>
+  <!-- ══════════════════ STATS PAGE ════════════════════════ -->
+  <div class="page" id="page-stats">
+
+    <!-- All-time summary -->
+    <div class="card">
+      <div class="card-title">All-Time Summary</div>
+      <div class="summary-grid" style="margin-top:14px">
+        <div class="summary-card">
+          <div class="summary-val" id="all-hours">0</div>
+          <div class="summary-lbl">hours on Instagram</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-val" id="all-correct">0</div>
+          <div class="summary-lbl">correct answers</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-val" id="all-earned">0</div>
+          <div class="summary-lbl">min earned from quizzes</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-val" id="all-accuracy">—</div>
+          <div class="summary-lbl">quiz accuracy</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-val" id="all-overrides">0</div>
+          <div class="summary-lbl">total overrides</div>
+        </div>
+        <div class="summary-card">
+          <div class="summary-val" id="all-days">0</div>
+          <div class="summary-lbl">days tracked</div>
+        </div>
+      </div>
     </div>
-    <div class="earn-badge">✨ Correct answer = +2 min added to your budget</div>
+
+    <!-- 7-day chart -->
+    <div class="card">
+      <div class="chart-title">Last 7 Days — Minutes Used vs Budget</div>
+      <div class="chart" id="week-chart">
+        <div class="no-data">No data yet — start scrolling Instagram!</div>
+      </div>
+    </div>
+
+    <!-- Insights -->
+    <div class="card">
+      <div class="card-title">Insights</div>
+      <div style="margin-top:14px">
+        <div class="insight-row" id="insight-peak">
+          <div class="insight-icon">🕐</div>
+          <div class="insight-text" id="insight-peak-text">Loading…</div>
+        </div>
+        <div class="insight-row" id="insight-streak">
+          <div class="insight-icon">🔥</div>
+          <div class="insight-text" id="insight-streak-text">Loading…</div>
+        </div>
+        <div class="insight-row" id="insight-quiz">
+          <div class="insight-icon">📚</div>
+          <div class="insight-text" id="insight-quiz-text">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Day-by-day history -->
+    <div class="card">
+      <div class="history-title">Day-by-Day History</div>
+      <div id="history-table-wrap">
+        <div class="no-data">No history yet.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════════ RESET PAGE ════════════════════════ -->
+  <div class="page" id="page-reset">
+
+    <!-- Reset today -->
+    <div class="reset-option">
+      <div class="reset-title">Reset Today</div>
+      <div class="reset-desc">Clears only today's session. Your streak, history, quiz bank, and settings are all preserved.</div>
+      <div class="reset-clears">
+        <span>⏱ Timer</span><span>✅ Quiz scores</span><span>🔁 Overrides</span><span>📊 Interventions</span>
+      </div>
+      <button class="reset-btn reset-btn-today" id="btn-reset-today">Reset Today's Data</button>
+      <div class="reset-status" id="status-today"></div>
+    </div>
+
+    <!-- Reset all history -->
+    <div class="reset-option">
+      <div class="reset-title">Reset All History</div>
+      <div class="reset-desc">Deletes all daily usage history and resets settings to defaults. Your uploaded files and question bank are preserved.</div>
+      <div class="reset-clears">
+        <span>📅 All daily data</span><span>⚙️ Settings</span><span>🔥 Streak</span>
+      </div>
+      <div class="confirm-row">
+        <input type="text" class="confirm-input" id="confirm-all" placeholder='Type "RESET" to confirm' />
+        <button class="reset-btn reset-btn-all" id="btn-reset-all" disabled>Reset History</button>
+      </div>
+      <div class="reset-status" id="status-all"></div>
+    </div>
+
+    <!-- Nuclear reset -->
+    <div class="reset-option">
+      <div class="reset-title">⚠️ Full Wipe</div>
+      <div class="reset-desc">Deletes everything — history, settings, uploaded files, and all generated questions. ScrollSense goes back to day one.</div>
+      <div class="reset-clears">
+        <span>📅 All daily data</span><span>⚙️ Settings</span><span>📂 Files</span><span>🗃️ Question bank</span>
+      </div>
+      <div class="confirm-row">
+        <input type="text" class="confirm-input" id="confirm-nuclear" placeholder='Type "DELETE ALL" to confirm' />
+        <button class="reset-btn reset-btn-nuclear" id="btn-reset-nuclear" disabled>Full Wipe</button>
+      </div>
+      <div class="reset-status" id="status-nuclear"></div>
+    </div>
+
   </div>
 
 </div>
